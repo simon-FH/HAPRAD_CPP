@@ -10,28 +10,27 @@ class TKinematicalVariables;
 class TLorentzInvariants;
 class THadronKinematics;
 
-
 class TRV2LN : public ROOT::Math::IBaseFunctionOneDim {
-public:
-    TRV2LN(const TRadCor* rc, double phi_k);
-    ~TRV2LN();
+ public:
+  TRV2LN(const TRadCor* rc, double phi_k);
+  ~TRV2LN();
 
-    virtual IBaseFunctionOneDim* Clone() const;
+  virtual IBaseFunctionOneDim* Clone() const;
 
-private:
-    virtual double DoEval(double tauln) const;
+ private:
+  virtual double DoEval(double tauln) const;
 
-    const TRadCor*                  fRC;
-    const THapradConfig*            fConfig;
-    const TKinematicalVariables*    fKin;
-    const TLorentzInvariants*       fInv;
-    const THadronKinematics*        fHadKin;
+  const TRadCor* fRC;
+  const THapradConfig* fConfig;
+  const TKinematicalVariables* fKin;
+  const TLorentzInvariants* fInv;
+  const THadronKinematics* fHadKin;
 
-    TStructFunctionArray fH;
+  TStructFunctionArray fH;
 
-    double fPhiK;
-    double fTauMax;
-    double fTauMin;
+  double fPhiK;
+  double fTauMax;
+  double fTauMin;
 };
 
 #endif

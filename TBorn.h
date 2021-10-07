@@ -8,22 +8,21 @@ class TKinematicalVariables;
 class TLorentzInvariants;
 class THadronKinematics;
 
-
 class TBorn {
-public:
-    TBorn(const TRadCor* rc);
-    ~TBorn();
+ public:
+  TBorn(const TRadCor* rc);
+  ~TBorn();
 
-    Double_t        Evaluate(void);
+  Double_t Evaluate(void);
 
-private:
-    const TKinematicalVariables*    fKin;
-    const TLorentzInvariants*       fInv;
-    const THadronKinematics*        fHadKin;
+ private:
+  const TKinematicalVariables* fKin;
+  const TLorentzInvariants* fInv;
+  const THadronKinematics* fHadKin;
 
-    TStructFunctionArray fH;
+  TStructFunctionArray fH;
 
-    Double_t    fThetaB[4];
+  Double_t fThetaB[4];
 };
 
 #endif
