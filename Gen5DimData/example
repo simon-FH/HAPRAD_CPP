@@ -1,5 +1,0 @@
-./5dim_acc_corr Q2_MIN Q2_MAX N_Q2 XB_MIN XB_MAX N_XB NU_MIN NU_MAX N_NU ZH_MIN ZH_MAX N_ZH PT_MIN PT_MAX N_PT PHI_MIN PHI_MAX N_PHI /data/Loc fDataExt fSimuExt elecExt pionExt XF_CUT(OPT) Metal(OPT)
-./5dim_acc_corr 1 4 6 0.1 0.55 5 2.2 4.2 10 0 1 10 0 1 5 -180 180 12 /home/rodrigo/Data/PhiRatioeXf/ _data_ _simul_ 4 elec.root pion.root
-
-./5dim_acc_corr 1 4 6 0.1 0.55 5 2.2 4.2 10 0 1 10 0 1 5 -180 180 12 /user/o/orsosa/DataInRC _data _sim_o 1 eso .root 1 C
-
