@@ -5,7 +5,6 @@ SHELL = /bin/bash
 .SECONDARY: $(DICT_CLASS)
 .PHONY: all lib clean distclean checkdirs
 
-
 ROOTCONFIG  := root-config
 ROOTCFLAGS  := $(shell $(ROOTCONFIG) --cflags)
 ROOTLDFLAGS := $(shell $(ROOTCONFIG) --ldflags)
@@ -21,19 +20,18 @@ CXXFLAGS += -g -fPIC
 endif
 
 #ifeq ($(findstring Linux,$(OS_NAME)),Linux)
-#CXX       := g++  -fPIC 
+#CXX       := g++  -fPIC
 #CXXFLAGS  += -Wall $(ROOTCFLAGS) $(SET_DEBUG) \
 #    ./configure--enable-shared_dependencies
 #endif
 
-LD        = g++ -fPIC 
-LDFLAGS   = -O2 $(ROOTLDFLAGS) -lgfortran 
+LD        = g++ -fPIC
+LDFLAGS   = -O2 $(ROOTLDFLAGS) -lgfortran
 SOFLAGS   = -Wl,-soname,$(notdir $@) -shared
 
 INCLUDES  := -I$(ROOTINCDIR)
 LOCALINCLUDES := -I.
 LIBS      := -L$(ROOTLIBDIR) -lMathMore
-
 
 SLIB_DIR := slib
 OBJ_DIR  := .obj
@@ -51,12 +49,9 @@ FSRC_OBJ   := $(addprefix $(OBJ_DIR)/,$(patsubst %.f,%.o,$(wildcard *.f)))
 
 SH_LIB     := libTRadCor.so
 
-CERNLIBS   := -lpdflib804 -lmathlib -lphtools -lpacklib -lkernlib -lpawlib
-FLIBS      := $(CERNLIBS)
-
 FCC        := gfortran
 
-F77OPT     := -fPIC -DLinux -ffixed-line-length-none -fdollar-ok \
+F77OPT     := -std=legacy -fPIC -DLinux -ffixed-line-length-none -fdollar-ok \
               -fno-second-underscore
 
 ##############################################################################

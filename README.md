@@ -1,31 +1,26 @@
 HAPRAD_CPP
 ==========
 
-DONT FORGET TO COPY DICT FILE INTO SLIB/!!!!
+C++ program for calculation of radiative correction to semi-inclusive hadron leptoproduction, based in the original Fortran code `HAPRAD2`.
 
-All the steps to make Pi Plus Analysis (Multilpicity Ratio and Braodening) are detailed here.
+DONT FORGET TO COPY DICT FILES INTO SLIB/!!!!
 
-To compile the library please make sure you have installed make, imake (xutils-dev in Ubuntu), cernlib and ROOT
+## Requirements
 
-First it is necessary to set the enviorment variables
+* [**ROOT**](https://root.cern.ch/)
 
-setenv GITPIPLUS PiPlusDirectory
-setenv CLASTOOL ${GITPIPLUS}/ClasToolPack/ClasTool
-setenv OS_NAME Linux
-setenv CLAS_PACK ${GITPIPLUS}/ClasToolPack/CLAS_PACK
-setenv CLAS_LIB ${GITPIPLUS}/ClasToolPack/CLAS_LIB
-setenv ANALYSER ${GITPIPLUS}/ClasToolPack/Analyser/analysis_lib
-setenv MYSQL_INCLUDE $MYSQLINC
-setenv MYSQL_LIB $MYSQLIB
-setenv LD_LIBRARY_PATH ${CLASTOOL}/slib/${OS_NAME}:${LD_LIBRARY_PATH}
-setenv LD_LIBRARY_PATH ${ANALYSER}/slib:$${LD_LIBRARY_PATH}
+## Compilation
 
-To compile HAPRAD_CPP it is necessary to have libMathMore in root, to do this libgsl need to be installed and in configure set --enable-gsl-shared (make sure configure output is "Checking whether to build libMathMore ... yes")
+Compile by running `make`.
 
-cernlib
-pdflib804 (libpdflib804-2-dev)
-phtools (libphtools2-dev)
+If everything goes well, a file called `slib/libTRadCor.so` should appear.
 
 ## Authors
 
 H. Hakobyan, R. Oyarzun and S. Mancilla.
+
+## References
+
+* I. Akushevich, N. Shumeiko, A. Soroko. Eur. Phys. J. C **10**, 681 (1999)
+
+* I. Akushevich, A. Ilyichev, M. Osipenko. Physics Letters B **672**, 35-44 (2009)
