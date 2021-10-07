@@ -1,0 +1,2 @@
+./genRC Q2_MIN Q2_MAX N_Q2 XB_MIN XB_MAX N_XB ZH_MIN ZH_MAX N_ZH PT_MIN PT_MAX N_PT PHI_MIN PHI_MAX N_PHI /data/Loc Metal
+./genRC 1 4 6 0.1 0.55 5 0 1 10 0 1 5 -180 180 12 /home/rodrigo/Data/PhiRatioeXf/ C

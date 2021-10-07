@@ -1,0 +1,2 @@
+./phihist /data/Loc/ PHI_MIN PHI_MAX N_PHI Metal(OPT)
+./phihist /home/rodrigo/Data/GITData/5DimData/Pos -180 180 12 C
