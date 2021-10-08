@@ -8,6 +8,7 @@
 /*** Global variables ***/
 
 TString gDataDir = getenv("DATA_DIR");
+TString gSimDir = getenv("SIM_DIR");
 
 TString gTargetOption;
 Int_t gPID;
