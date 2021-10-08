@@ -1,19 +1,23 @@
 HAPRAD_CPP
 ==========
 
-C++ program for calculation of radiative correction to semi-inclusive hadron leptoproduction, based in the original Fortran code `HAPRAD2`.
-
-DONT FORGET TO COPY DICT FILES INTO SLIB/!!!!
+C++ program for calculation of radiative corrections to semi-inclusive hadron leptoproduction, based in the original Fortran code `HAPRAD2`.
 
 ## Requirements
 
 * [**ROOT**](https://root.cern.ch/)
 
+* **cernlib**, preferably the official package that comes with Debian/Ubuntu, and not the one located in http://github.com/utfsm-eg2-data-analysis/cernlib.
+
 ## Compilation
 
 Compile by running `make`.
 
-If everything goes well, a file called `slib/libTRadCor.so` should appear.
+## Usage
+
+If the compilation was succesful, a file called `slib/libTRadCor.so` should now exist.
+
+You can link this dynamic library to your own programs in order to calculate radiative corrections. Please, refer to [Utilities/README.md](Utilities/README.md) to know how to use the programs present in this repository.
 
 ## Authors
 

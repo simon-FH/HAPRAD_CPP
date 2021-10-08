@@ -3,3 +3,8 @@
 **/.dep
 **/.dict
 **/slib
+**/bin
+**.csv
+**.txt
+**.png
+fit-results*
