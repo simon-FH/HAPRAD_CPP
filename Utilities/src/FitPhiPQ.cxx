@@ -6,6 +6,7 @@
 /*****************************************/
 
 // This program fits the PhiPQ distributions of a certain particle
+
 // October 2021
 
 #include "Binning.hxx"
@@ -57,7 +58,7 @@ int main(int argc, char **argv) {
 
   /*** GET NUMBER OF BINS ***/
 
-  Int_t NbinsPhiPQ = (Int_t)(sizeof(kEdgesPhiPQ) / sizeof(kEdgesPhiPQ[0]));
+  Int_t NbinsPhiPQ = (Int_t)(sizeof(kEdgesPhiPQ) / sizeof(kEdgesPhiPQ[0])) - 1;
 
   /*** HISTOGRAMS ***/
 

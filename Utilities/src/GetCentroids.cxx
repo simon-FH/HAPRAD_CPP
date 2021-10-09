@@ -6,7 +6,8 @@
 /*****************************************/
 
 // This program gets the centroids of (PhiPQ) bins based on a (Q2, Nu, Zh, Pt2, PhiPQ) binning given by a CSV file
-// June 2021
+
+// October 2021
 
 #include "Binning.hxx"
 #include "Headers.hxx"
@@ -96,13 +97,13 @@ int main(int argc, char **argv) {
 
   /*** GET NUMBER OF BINS ***/
 
-  Int_t NbinsQ2 = (Int_t)(sizeof(kEdgesQ2) / sizeof(kEdgesQ2[0]));
-  Int_t NbinsNu = (Int_t)(sizeof(kEdgesNu) / sizeof(kEdgesNu[0]));
-  Int_t NbinsZ = (Int_t)(sizeof(kEdgesZ) / sizeof(kEdgesZ[0]));
-  Int_t NbinsPt2 = (Int_t)(sizeof(kEdgesPt2) / sizeof(kEdgesPt2[0]));
-  Int_t NbinsPhiPQ = (Int_t)(sizeof(kEdgesPhiPQ) / sizeof(kEdgesPhiPQ[0]));
+  Int_t NbinsQ2 = (Int_t)(sizeof(kEdgesQ2) / sizeof(kEdgesQ2[0])) - 1;
+  Int_t NbinsNu = (Int_t)(sizeof(kEdgesNu) / sizeof(kEdgesNu[0])) - 1;
+  Int_t NbinsZ = (Int_t)(sizeof(kEdgesZ) / sizeof(kEdgesZ[0])) - 1;
+  Int_t NbinsPt2 = (Int_t)(sizeof(kEdgesPt2) / sizeof(kEdgesPt2[0])) - 1;
+  Int_t NbinsPhiPQ = (Int_t)(sizeof(kEdgesPhiPQ) / sizeof(kEdgesPhiPQ[0])) - 1;
 
-  Int_t NTotalBins = (Int_t)PhiPQ_low.size();
+  Int_t NTotalBins = (Int_t)PhiPQ_low.size(); // = number of lines of the file
 
   /*** HISTOGRAMS ***/
 
@@ -168,19 +169,19 @@ int main(int argc, char **argv) {
     /*** DATA HISTOGRAMS ***/
 
     // Q2
-    dataChain->Draw(Form("Q2>>data_Q2_%i(100, %.2f, %.2f)", i, kEdgesQ2[0], kEdgesQ2[NbinsQ2 - 1]), CutPID && CutDIS && CutVertex && CutBin,
+    dataChain->Draw(Form("Q2>>data_Q2_%i(100, %.2f, %.2f)", i, kEdgesQ2[0], kEdgesQ2[NbinsQ2]), CutPID && CutDIS && CutVertex && CutBin,
                     "goff");
     histQ2_Data[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("data_Q2_%i", i));
     // Nu
-    dataChain->Draw(Form("Nu>>data_Nu_%i(100, %.2f, %.2f)", i, kEdgesNu[0], kEdgesNu[NbinsNu - 1]), CutPID && CutDIS && CutVertex && CutBin,
+    dataChain->Draw(Form("Nu>>data_Nu_%i(100, %.2f, %.2f)", i, kEdgesNu[0], kEdgesNu[NbinsNu]), CutPID && CutDIS && CutVertex && CutBin,
                     "goff");
     histNu_Data[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("data_Nu_%i", i));
     // Z
-    dataChain->Draw(Form("Zh>>data_Z_%i(100, %.2f, %.2f)", i, kEdgesZ[0], kEdgesZ[NbinsZ - 1]), CutPID && CutDIS && CutVertex && CutBin,
+    dataChain->Draw(Form("Zh>>data_Z_%i(100, %.2f, %.2f)", i, kEdgesZ[0], kEdgesZ[NbinsZ]), CutPID && CutDIS && CutVertex && CutBin,
                     "goff");
     histZ_Data[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("data_Z_%i", i));
     // Pt2
-    dataChain->Draw(Form("Pt2>>data_Pt2_%i(100, %.2f, %.2f)", i, kEdgesPt2[0], kEdgesPt2[NbinsPt2 - 1]),
+    dataChain->Draw(Form("Pt2>>data_Pt2_%i(100, %.2f, %.2f)", i, kEdgesPt2[0], kEdgesPt2[NbinsPt2]),
                     CutPID && CutDIS && CutVertex && CutBin, "goff");
     histPt2_Data[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("data_Pt2_%i", i));
     // PhiPQ
@@ -190,19 +191,19 @@ int main(int argc, char **argv) {
     /*** MC GEN. HISTOGRAMS ***/
 
     // Q2
-    simChain->Draw(Form("mc_Q2>>mc_Q2_%i(100, %.2f, %.2f)", i, kEdgesQ2[0], kEdgesQ2[NbinsQ2 - 1]), CutPID_MC && CutDIS_MC && CutBin_MC,
+    simChain->Draw(Form("mc_Q2>>mc_Q2_%i(100, %.2f, %.2f)", i, kEdgesQ2[0], kEdgesQ2[NbinsQ2]), CutPID_MC && CutDIS_MC && CutBin_MC,
                    "goff");
     histQ2_MC[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("mc_Q2_%i", i));
     // Nu
-    simChain->Draw(Form("mc_Nu>>mc_Nu_%i(100, %.2f, %.2f)", i, kEdgesNu[0], kEdgesNu[NbinsNu - 1]), CutPID_MC && CutDIS_MC && CutBin_MC,
+    simChain->Draw(Form("mc_Nu>>mc_Nu_%i(100, %.2f, %.2f)", i, kEdgesNu[0], kEdgesNu[NbinsNu]), CutPID_MC && CutDIS_MC && CutBin_MC,
                    "goff");
     histNu_MC[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("mc_Nu_%i", i));
     // Z
-    simChain->Draw(Form("mc_Zh>>mc_Z_%i(100, %.2f, %.2f)", i, kEdgesZ[0], kEdgesZ[NbinsZ - 1]), CutPID_MC && CutDIS_MC && CutBin_MC,
+    simChain->Draw(Form("mc_Zh>>mc_Z_%i(100, %.2f, %.2f)", i, kEdgesZ[0], kEdgesZ[NbinsZ]), CutPID_MC && CutDIS_MC && CutBin_MC,
                    "goff");
     histZ_MC[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("mc_Z_%i", i));
     // Pt2
-    simChain->Draw(Form("mc_Pt2>>mc_Pt2_%i(100, %.2f, %.2f)", i, kEdgesPt2[0], kEdgesPt2[NbinsPt2 - 1]),
+    simChain->Draw(Form("mc_Pt2>>mc_Pt2_%i(100, %.2f, %.2f)", i, kEdgesPt2[0], kEdgesPt2[NbinsPt2]),
                    CutPID_MC && CutDIS_MC && CutBin_MC, "goff");
     histPt2_MC[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("mc_Pt2_%i", i));
     // PhiPQ
@@ -212,16 +213,16 @@ int main(int argc, char **argv) {
     /*** SIM. REC. HISTOGRAMS ***/
 
     // Q2
-    simChain->Draw(Form("Q2>>sim_Q2_%i(100, %.2f, %.2f)", i, kEdgesQ2[0], kEdgesQ2[NbinsQ2 - 1]), CutPID && CutDIS && CutBin, "goff");
+    simChain->Draw(Form("Q2>>sim_Q2_%i(100, %.2f, %.2f)", i, kEdgesQ2[0], kEdgesQ2[NbinsQ2]), CutPID && CutDIS && CutBin, "goff");
     histQ2_Sim[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("sim_Q2_%i", i));
     // Nu
-    simChain->Draw(Form("Nu>>sim_Nu_%i(100, %.2f, %.2f)", i, kEdgesNu[0], kEdgesNu[NbinsNu - 1]), CutPID && CutDIS && CutBin, "goff");
+    simChain->Draw(Form("Nu>>sim_Nu_%i(100, %.2f, %.2f)", i, kEdgesNu[0], kEdgesNu[NbinsNu]), CutPID && CutDIS && CutBin, "goff");
     histNu_Sim[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("sim_Nu_%i", i));
     // Z
-    simChain->Draw(Form("Zh>>sim_Z_%i(100, %.2f, %.2f)", i, kEdgesZ[0], kEdgesZ[NbinsZ - 1]), CutPID && CutDIS && CutBin, "goff");
+    simChain->Draw(Form("Zh>>sim_Z_%i(100, %.2f, %.2f)", i, kEdgesZ[0], kEdgesZ[NbinsZ]), CutPID && CutDIS && CutBin, "goff");
     histZ_Sim[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("sim_Z_%i", i));
     // Pt2
-    simChain->Draw(Form("Pt2>>sim_Pt2_%i(100, %.2f, %.2f)", i, kEdgesPt2[0], kEdgesPt2[NbinsPt2 - 1]), CutPID && CutDIS && CutBin, "goff");
+    simChain->Draw(Form("Pt2>>sim_Pt2_%i(100, %.2f, %.2f)", i, kEdgesPt2[0], kEdgesPt2[NbinsPt2]), CutPID && CutDIS && CutBin, "goff");
     histPt2_Sim[i] = (TH1D *)gDirectory->GetList()->FindObject(Form("sim_Pt2_%i", i));
     // PhiPQ
     simChain->Draw(Form("PhiPQ>>sim_PhiPQ_%i(36, -180., 180.)", i), CutPID && CutDIS && CutBin, "goff");
@@ -230,37 +231,37 @@ int main(int argc, char **argv) {
     /*** CALCULATE ACCEPTANCE ***/
 
     // Q2
-    histQ2_Acceptance[i] = new TH1D(Form("acc_Q2_%i", i), "", 100, kEdgesQ2[0], kEdgesQ2[NbinsQ2 - 1]);
+    histQ2_Acceptance[i] = new TH1D(Form("acc_Q2_%i", i), "", 100, kEdgesQ2[0], kEdgesQ2[NbinsQ2]);
     histQ2_Acceptance[i]->Divide(histQ2_Sim[i], histQ2_MC[i], 1, 1, "B");
     // Nu
-    histNu_Acceptance[i] = new TH1D(Form("acc_Nu_%i", i), "", 100, kEdgesNu[0], kEdgesNu[NbinsNu - 1]);
+    histNu_Acceptance[i] = new TH1D(Form("acc_Nu_%i", i), "", 100, kEdgesNu[0], kEdgesNu[NbinsNu]);
     histNu_Acceptance[i]->Divide(histNu_Sim[i], histNu_MC[i], 1, 1, "B");
     // Z
-    histZ_Acceptance[i] = new TH1D(Form("acc_Z_%i", i), "", 100, kEdgesZ[0], kEdgesZ[NbinsZ - 1]);
+    histZ_Acceptance[i] = new TH1D(Form("acc_Z_%i", i), "", 100, kEdgesZ[0], kEdgesZ[NbinsZ]);
     histZ_Acceptance[i]->Divide(histZ_Sim[i], histZ_MC[i], 1, 1, "B");
     // Pt2
-    histPt2_Acceptance[i] = new TH1D(Form("acc_Pt2_%i", i), "", 100, kEdgesPt2[0], kEdgesPt2[NbinsPt2 - 1]);
+    histPt2_Acceptance[i] = new TH1D(Form("acc_Pt2_%i", i), "", 100, kEdgesPt2[0], kEdgesPt2[NbinsPt2]);
     histPt2_Acceptance[i]->Divide(histPt2_Sim[i], histPt2_MC[i], 1, 1, "B");
     // PhiPQ
-    histPhiPQ_Acceptance[i] = new TH1D(Form("acc_PhiPQ_%i", i), "", 36, kEdgesPhiPQ[0], kEdgesPhiPQ[NbinsPhiPQ - 1]);
+    histPhiPQ_Acceptance[i] = new TH1D(Form("acc_PhiPQ_%i", i), "", 36, kEdgesPhiPQ[0], kEdgesPhiPQ[NbinsPhiPQ]);
     histPhiPQ_Acceptance[i]->Divide(histPhiPQ_Sim[i], histPhiPQ_MC[i], 1, 1, "B");
 
     /*** CORRECT DATA ***/
 
     // Q2
-    histQ2_Corr[i] = new TH1D(Form("corr_Q2_%i", i), "", 100, kEdgesQ2[0], kEdgesQ2[NbinsQ2 - 1]);
+    histQ2_Corr[i] = new TH1D(Form("corr_Q2_%i", i), "", 100, kEdgesQ2[0], kEdgesQ2[NbinsQ2]);
     histQ2_Corr[i]->Divide(histQ2_Data[i], histQ2_Acceptance[i], 1, 1);
     // Nu
-    histNu_Corr[i] = new TH1D(Form("corr_Nu_%i", i), "", 100, kEdgesNu[0], kEdgesNu[NbinsNu - 1]);
+    histNu_Corr[i] = new TH1D(Form("corr_Nu_%i", i), "", 100, kEdgesNu[0], kEdgesNu[NbinsNu]);
     histNu_Corr[i]->Divide(histNu_Data[i], histNu_Acceptance[i], 1, 1);
     // Z
-    histZ_Corr[i] = new TH1D(Form("corr_Z_%i", i), "", 100, kEdgesZ[0], kEdgesZ[NbinsZ - 1]);
+    histZ_Corr[i] = new TH1D(Form("corr_Z_%i", i), "", 100, kEdgesZ[0], kEdgesZ[NbinsZ]);
     histZ_Corr[i]->Divide(histZ_Data[i], histZ_Acceptance[i], 1, 1);
     // Pt2
-    histPt2_Corr[i] = new TH1D(Form("corr_Pt2_%i", i), "", 100, kEdgesPt2[0], kEdgesPt2[NbinsPt2 - 1]);
+    histPt2_Corr[i] = new TH1D(Form("corr_Pt2_%i", i), "", 100, kEdgesPt2[0], kEdgesPt2[NbinsPt2]);
     histPt2_Corr[i]->Divide(histPt2_Data[i], histPt2_Acceptance[i], 1, 1);
     // PhiPQ
-    histPhiPQ_Corr[i] = new TH1D(Form("corr_PhiPQ_%i", i), "", 36, kEdgesPhiPQ[0], kEdgesPhiPQ[NbinsPhiPQ - 1]);
+    histPhiPQ_Corr[i] = new TH1D(Form("corr_PhiPQ_%i", i), "", 36, kEdgesPhiPQ[0], kEdgesPhiPQ[NbinsPhiPQ]);
     histPhiPQ_Corr[i]->Divide(histPhiPQ_Data[i], histPhiPQ_Acceptance[i], 1, 1);
 
     /*** GET CENTROIDS ***/

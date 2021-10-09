@@ -5,10 +5,10 @@
 #include "Headers.hxx"
 #endif
 
-const Double_t kEdgesQ2[2] = {1, 4.0};
-const Double_t kEdgesNu[2] = {2.2, 4.2};
-const Double_t kEdgesZ[2] = {0.5, 0.9};
-const Double_t kEdgesPt2[2] = {0.0, 1.5};
-const Double_t kEdgesPhiPQ[5] = {-180, -90, 0, 90, 180};
+const Double_t kEdgesQ2[3] = {1, 2.5, 4.0};
+const Double_t kEdgesNu[3] = {2.2, 3.2, 4.2};
+const Double_t kEdgesZ[3] = {0.5, 0.75, 1.0};
+const Double_t kEdgesPt2[3] = {0.0, 0.75, 1.5};
+const Double_t kEdgesPhiPQ[6] = {-180., -108., -36., 36., 108., 180.};
 
 #endif

@@ -5,7 +5,7 @@
 /*                                       */
 /*****************************************/
 
-// June 2021
+// October 2021
 
 #include "Headers.hxx"
 #include "UX.hxx"
@@ -66,11 +66,11 @@ int main(int argc, char **argv) {
 
   /*** CALCULATE RC FACTORS ***/
 
+  // this "m" is necessary for the RC calculations
+  // the model is prepared for pions, that explains the kMassPion term here
+  Double_t m = TMath::Power((kMassNeutron + kMassPion), 2);
   Double_t f1, f3;
-  Double_t m = TMath::Power((kMassNeutron + kMassPion), 2);  // ...ok?
   Double_t a1, a2, a3;
-  Int_t sysReturn;
-  Int_t dataSL;
 
   TRadCor rc;
 
@@ -78,16 +78,33 @@ int main(int argc, char **argv) {
   a2 = 0;
   a3 = a1 / a2;
 
+  // define and create output file
   std::ofstream out;
   out.open("RCFactor_" + gTargetOption + ".txt");
-  out << "Phi\tSigmaB\tSigmaOb\tTail1\tTaile2\tFact_noex\tFact_ex" << std::endl;
+
+  // write first line
+  out << std::setw(15) << std::fixed << std::setprecision(5) << "XbCentroid" << std::setw(15) << "Q2Centroid" << std::setw(15)
+      << "ZhCentroid" << std::setw(15) << "PtCentroid" << std::setw(15) << "PhiPQCentroid" << std::setw(15) << "Fact_noex" << std::setw(15)
+      << "Fact_ex" << std::endl;
+
+  // loop over bins
   for (Int_t i = 0; i < (Int_t)phi_centroid.size(); i++) {
+    // calculate rc factors
     rc.CalculateRCFactor(5.015, xb_centroid[i], q2_centroid[i], zh_centroid[i], pt_centroid[i], phi_centroid[i], m, NAZ);
     f1 = rc.GetFactor1();
     f3 = rc.GetFactor3();
     if (TMath::IsNaN(f1) || f1 == a3) f1 = 0;
     if (TMath::IsNaN(f3) || f3 == a3) f3 = 0;
-    out << i << "\t0\t0\t0\t0\t" << f1 << "\t" << f3 << std::endl;
+    // if any of the centroids is zero, null the rc factor
+    Bool_t emptyBin = xb_centroid[i] == 0. || q2_centroid[i] == 0. || zh_centroid[i] == 0. || pt_centroid[i] == 0. || phi_centroid[i] == 0.;
+    if (emptyBin) {
+      f1 = 0;
+      f3 = 0;
+    }
+    // write centroids and rc factors into output file
+    out << std::setw(15) << std::fixed << std::setprecision(5) << xb_centroid[i] << std::setw(15) << q2_centroid[i] << std::setw(15)
+        << zh_centroid[i] << std::setw(15) << pt_centroid[i] << std::setw(15) << phi_centroid[i] << std::setw(15) << f1 << std::setw(15)
+        << f3 << std::endl;
   }
   out.close();
 
