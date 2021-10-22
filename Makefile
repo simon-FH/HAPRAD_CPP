@@ -1,37 +1,26 @@
 SHELL = /bin/bash
 
+ifndef ROOTSYS
+    $(error "ERROR: please, set ROOT")
+endif
+
 .DELETE_ON_ERROR:
 
 .SECONDARY: $(DICT_CLASS)
 .PHONY: all lib clean distclean checkdirs
 
 ROOTCONFIG  := root-config
-ROOTCFLAGS  := $(shell $(ROOTCONFIG) --cflags)
-ROOTLDFLAGS := $(shell $(ROOTCONFIG) --ldflags)
-ROOTLIBS    := $(shell $(ROOTCONFIG) --libs)
-ROOTLIBDIR  := $(shell $(ROOTCONFIG) --libdir)
-ROOTINCDIR  := $(shell $(ROOTCONFIG) --incdir)
+ROOTCFLAGS  := $(shell $(ROOTCONFIG) --cxx --cflags)
+ROOTCFLAGS  := $(ROOTCFLAGS) -fPIC
+ROOTLDFLAGS := $(shell $(ROOTCONFIG) --cxx --ldflags)
+ROOTLDFLAGS := $(ROOTLDFLAGS) -lgfortran
 ROOTCINT    := rootcint
 
-ifeq "$(DEBUG)" ""
-CXXFLAGS += -O2 -fPIC
-else
-CXXFLAGS += -g -fPIC
-endif
+SOFLAGS = -Wl,-soname,$(notdir $@) -shared
 
-#ifeq ($(findstring Linux,$(OS_NAME)),Linux)
-#CXX       := g++  -fPIC
-#CXXFLAGS  += -Wall $(ROOTCFLAGS) $(SET_DEBUG) \
-#    ./configure--enable-shared_dependencies
-#endif
-
-CXX       = g++ -std=c++11 -fPIC
-LD        = g++ -std=c++11 -fPIC
-LDFLAGS   = -O2 $(ROOTLDFLAGS) -lgfortran
-SOFLAGS   = -Wl,-soname,$(notdir $@) -shared
-
-INCLUDES  := -I$(ROOTINCDIR)
 LOCALINCLUDES := -I.
+
+ROOTLIBDIR  := $(shell $(ROOTCONFIG) --libdir)
 LIBS      := -L$(ROOTLIBDIR) -lMathMore
 
 SLIB_DIR := slib
@@ -45,22 +34,16 @@ SRC_DEP    := $(addprefix $(DEP_DIR)/,$(SRC_CODE:.cxx=.d))
 SRC_OBJ    := $(addprefix $(OBJ_DIR)/,$(SRC_CODE:.cxx=.o))
 DICT_CLASS := $(addprefix $(DICT_DIR)/,$(SRC_CLASS:.cxx=Dict.cxx))
 DICT_OBJ   := $(addprefix $(OBJ_DIR)/,$(SRC_CLASS:.cxx=Dict.o))
-
 FSRC_OBJ   := $(addprefix $(OBJ_DIR)/,$(patsubst %.f,%.o,$(wildcard *.f)))
 
 SH_LIB     := libTRadCor.so
 
 FCC        := gfortran
 
-F77OPT     := -std=legacy -fPIC -DLinux -ffixed-line-length-none -fdollar-ok \
-              -fno-second-underscore
-
-##############################################################################
+F77OPT     := -std=legacy -fPIC -DLinux -ffixed-line-length-none -fdollar-ok -fno-second-underscore
 
 $(OBJ_DIR)/%.o: %.f
 	$(FCC) $(F77OPT) -c $< -o $@
-
-##############################################################################
 
 all: lib
 
@@ -68,33 +51,18 @@ lib: checkdirs $(SLIB_DIR)/$(SH_LIB)
 
 include Makefile_depends
 
-
 $(SLIB_DIR)/$(SH_LIB): $(SRC_OBJ) $(DICT_OBJ) $(FSRC_OBJ)
-	$(LD) $(SOFLAGS) $(LDFLAGS)  $^ $(LIBS) -o $@
-
+	$(ROOTLDFLAGS) $(SOFLAGS) $^ $(LIBS) -o $@
 
 $(DICT_DIR)/%Dict.cxx: %.h
-ifneq (,$(filter %.o,$(MAKECMDGOALS)))
-	@test -d $(DICT_DIR) || mkdir -p $(DICT_DIR)
-endif
 	$(ROOTCINT) -f $@ -c $(<F) $(<F:%.h=%LinkDef.h)
 
-
 $(OBJ_DIR)/%Dict.o: $(DICT_DIR)/%Dict.cxx
-ifneq (,$(filter %.o,$(MAKECMDGOALS)))
-	@test -d $(OBJ_DIR) || mkdir -p $(OBJ_DIR)
-endif
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LOCALINCLUDES) -c $< -o $@
-
+	$(ROOTCFLAGS) $(LOCALINCLUDES) -c $< -o $@
 
 $(OBJ_DIR)/%.o: %.cxx
-ifneq (,$(filter %.o,$(MAKECMDGOALS)))
-	@test -d $(DEP_DIR) || mkdir -p $(DEP_DIR)
-	@test -d $(OBJ_DIR) || mkdir -p $(OBJ_DIR)
-endif
 	@$(call make-depend,$<,$@,$(@F:.o=.d))
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LOCALINCLUDES) -c $< -o $@
-
+	$(ROOTCFLAGS) $(LOCALINCLUDES) -c $< -o $@
 
 checkdirs: $(SLIB_DIR) $(OBJ_DIR) $(DICT_DIR) $(DEP_DIR)
 
@@ -102,5 +70,4 @@ $(SLIB_DIR) $(OBJ_DIR) $(DICT_DIR) $(DEP_DIR):
 	@mkdir -p $@
 
 clean:
-	@rm -rf $(OBJ_DIR) $(DICT_DIR)
-	@rm -rf $(SLIB_DIR) $(DEP_DIR)
+	rm -rf $(OBJ_DIR) $(DICT_DIR) $(SLIB_DIR) $(DEP_DIR)
