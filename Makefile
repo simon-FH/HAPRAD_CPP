@@ -25,7 +25,8 @@ endif
 #    ./configure--enable-shared_dependencies
 #endif
 
-LD        = g++ -fPIC
+CXX       = g++ -std=c++11 -fPIC
+LD        = g++ -std=c++11 -fPIC
 LDFLAGS   = -O2 $(ROOTLDFLAGS) -lgfortran
 SOFLAGS   = -Wl,-soname,$(notdir $@) -shared
 
