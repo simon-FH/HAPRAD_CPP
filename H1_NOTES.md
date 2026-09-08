@@ -26,7 +26,10 @@ reverts — once per target.
 
 `TSemiInclusiveModel.cxx` still contains the intended implementation: it loads
 `newphihist.root`, an `NTuple` of `(Q2, Xb, Zh, Pt, A, Ac, Acc)`, into three 4-D
-`THnD` histograms. **That file does not exist anywhere on this machine.**
+`THnD` histograms. That file is absent — but it is **not** a missing asset to go
+looking for. Those are fitted azimuthal-modulation amplitudes, so it is an
+*output of the analysis*, produced from your own data. The real statement is
+that **nothing in the chain currently produces it**; see §6.
 
 ## 2. What this blocks
 
@@ -188,12 +191,66 @@ data, feed that fit back as the model, repeat. Route B is that step, and it is
 what the `Utilities` chain was built for. It should be layered on top of a
 working Route A, not instead of it.
 
+### What the chain actually produces today
+
+`newphihist.root` is an analysis product, so the question is why the chain does
+not emit one. Because `FitPhiPQ` fits the **integrated** sample:
+
+```cpp
+// FitPhiPQ.cxx:66 -- CutPID && CutDIS && CutVertex, and no bin cut
+dataChain->Draw(Form("PhiPQ>>data(%i, -180., 180.)", NbinsPhiPQ), ...);
+```
+
+One fit over everything, giving three numbers per target. Those three numbers are
+what `exec_rad-corr_chain.sh` seds into the source, and they are the origin of
+the flat model in §3. Nothing is binned in `(Q2, x, z, p_t)` at any point.
+
+The missing piece is small, because `GetCentroids` **already builds exactly the
+histograms required** — acceptance-corrected `phi_PQ` per 5-D bin — and then
+throws the shape away:
+
+```cpp
+// GetCentroids.cxx:264
+histPhiPQ_Corr[i]->Divide(histPhiPQ_Data[i], histPhiPQ_Acceptance[i], 1, 1);
+meanPhiPQ[i] = histPhiPQ_Corr[i]->GetMean();   // only the mean is kept
+```
+
+So the work is to fit `A + Ac cos(phi) + Acc cos(2 phi)` to `histPhiPQ_Corr[i]`
+in each bin and write the amplitudes out, rather than only their mean.
+
+### Why a data table cannot stand alone
+
+This is the part that decides the architecture. The tail integrals evaluate the
+structure functions at **shifted** kinematics — `Q2 + R*tau`, `W2 - R(1+tau)`,
+and the corresponding shifted `z` and `p_t` — which range far outside the region
+where you have acceptance, and by construction cover the collinear peaks. A table
+built from data has nothing to say there, and the present code handles that by
+**silently clamping to the edge bin**:
+
+```cpp
+// TSemiInclusiveModel.cxx
+if (bin[i] > xmaxs[i]) bin[i] = xmaxs[i] - 0.001;
+if (bin[i] < xmins[i]) bin[i] = xmins[i] + 0.001;
+```
+
+which is precisely the silent-wrong-answer mode documented in
+`~/externals/CLAS12_MIGRATION_PLAN.md`.
+
+So model and data are not alternatives; they are layers. The model has to be
+defined over the whole integration domain, with the data constraining it where
+statistics exist. **This is why Route A is a prerequisite for Route B rather than
+a competitor to it** — and it is also the natural seed for iteration 0, since the
+first RC has to be computed before there is any corrected data to fit.
+
 Requirements:
 
-* Rebuild the `newphihist.root` equivalent from RG-E, binned in `(Q2, x, z, p_t)`.
-  The existing `THnD` binning — `Q2 in [1,4]`, `x in [0.1,0.55]`, 6x5x10x5 bins —
-  is far too small for RG-E, where `Q2` reaches 8.5 and `x` falls to 0.015.
-  Out-of-range values are currently **clamped to the edge bin**, silently.
+* Add a per-bin fit step (above), writing `(Q2, x, z, p_t, A, Ac, Acc)`.
+* Widen the binning. The `THnD` axes — `Q2 in [1,4]`, `x in [0.1,0.55]`,
+  6x5x10x5 bins — are far too small for RG-E, where `Q2` reaches 8.5 and `x`
+  falls to 0.015. `Binning.hxx` is currently a 2x2x2x2 placeholder with 5 phi
+  points per cell, which is 2 degrees of freedom against 3 fit parameters.
+* Use the data only inside its support; fall back to the model outside it,
+  rather than clamping.
 * Enforce `A_c ~ p_t`, `A_cc ~ p_t^2` in the inversion (§4), otherwise H4 returns.
 * Note `TSemiInclusiveModel.cxx` uses `THnD::Fill(values, weight)`, which
   *accumulates*. That is only correct if the tuple holds exactly one entry per
@@ -219,9 +276,9 @@ Measurable, no judgement calls:
 
 ## 8. Open questions
 
-1. **Route A or straight to B?** A is a day's work, unblocks every check, and
-   gives a validated baseline. B is what the physics ultimately needs. My
-   recommendation is A first, precisely so B has something to be checked against.
+1. **Route A then B.** Not a choice between them: B needs a model underneath it
+   to cover the shifted kinematics the tails sample (§6), and needs one anyway to
+   seed iteration 0. A is a day's work and unblocks every check.
 2. **Which hadron?** The model is pi+/proton throughout. RG-E wants pi-, and the
    exclusive grid would need `pim`. `haprad3` ships one.
 3. **Nuclear targets.** This is a free-proton calculation; `GetFactor3`'s
