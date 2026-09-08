@@ -11,12 +11,12 @@
 #include "haprad_constants.h"
 #include "square_power.h"
 #include "Math/GSLIntegrator.h"
-#include "Math/GSLMCIntegrator.h"
+#include "Math/IntegratorMultiDim.h"
 #include "ConfigFile.h"
 #include <iostream>
 #include <iomanip>
 
-TRadCor::TRadCor() : sigma_born(0.), sig_obs(0.) {
+TRadCor::TRadCor() : fKin(0), fInv(0), fHadKin(0), sigma_born(0.), sig_obs(0.) {
   // Default constructor
 
   fConfig = new THapradConfig();
@@ -25,6 +25,9 @@ TRadCor::TRadCor() : sigma_born(0.), sig_obs(0.) {
 TRadCor::~TRadCor() {
   // Default destructor
 
+  delete fKin;
+  delete fInv;
+  delete fHadKin;
   delete fConfig;
 }
 
@@ -76,6 +79,15 @@ void TRadCor::CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z,
   // Set up the propostion for protons to neutrons Z/A
   NAZ = targProp;
 
+  // These are owned for the lifetime of the object rather than just this call,
+  // so that GetKinematicalVariables()/GetLorentzInvariants()/
+  // GetHadronKinematics() actually return usable pointers afterwards. They used
+  // to be deleted before returning, which left those public getters handing out
+  // dangling pointers.
+  delete fKin;
+  delete fInv;
+  delete fHadKin;
+
   fKin = new TKinematicalVariables(x, -Q2, z, p_t, phi / kRadianDeg, E);
   fInv = new TLorentzInvariants(fConfig, fKin);
   fHadKin = new THadronKinematics(fConfig, fKin, fInv);
@@ -119,10 +131,6 @@ void TRadCor::CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z,
               << "    A1, B1, C1, D1, E1" << std::endl
               << std::endl;
   }
-
-  delete fKin;
-  delete fInv;
-  delete fHadKin;
 }
 
 Double_t TRadCor::GetRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z, Double_t p_t, Double_t phi, Double_t maxMx2,
@@ -190,11 +198,22 @@ Double_t TRadCor::GetFactor3(void) {
 
 void TRadCor::Initialization(void) {
   fInv->Evaluate();
+
+  // Whether p_t (rather than the invariant t) was the quantity supplied has to
+  // be recorded BEFORE THadronKinematics::Evaluate() runs: when p_t is given,
+  // SetMomentum() overwrites fKin's T with the computed invariant t, which is
+  // negative. Testing fKin->T() >= 0 afterwards is therefore always false, and
+  // the p_t-differential Jacobian below was silently never applied -- leaving
+  // every absolute cross section too small by sqrt(lambda_q) / (2 M p_l),
+  // a factor of 2 to 3.5 over the RG-E range. The FORTRAN applies it inside
+  // the `IF (tdif .GE. 0)` block, before tdif is overwritten (ihaprad.f).
+  const Bool_t ptWasGiven = (fKin->T() >= 0);
+
   fHadKin->Evaluate();
 
   // Calculate normalization factor
   N = kBarn * (kPi * SQ(kAlpha) * fKin->Y() * fInv->Sx() * kMassProton) / (2 * fInv->SqrtLq());
-  if (fKin->T() >= 0) {
+  if (ptWasGiven) {
     if (fHadKin->Ph() > fHadKin->Pt()) {
       N = N * fInv->SqrtLq() / 2 / kMassProton / fHadKin->Pl();
     } else {
@@ -284,7 +303,15 @@ Double_t TRadCor::ExclusiveRadiativeTail(void) {
   tau[4] = tau_2 + 0.15 * (tau_max - tau_2);
   tau[5] = tau_max;
 
-  ROOT::Math::GSLMCIntegrator ig(ROOT::Math::IntegrationMultiDim::kMISER, 1E-6, 1E-3, 20000);
+  // Deterministic adaptive cubature (Genz-Malik), the same family as the NAG
+  // D01FCE the original FORTRAN uses, with matching settings: relative
+  // tolerance 1e-3, up to 1e5 points. This replaces MISER Monte Carlo capped at
+  // 20000 calls, which agreed with the reference only to ~1.4e-3 here; the
+  // integrand is sharply peaked at the collinear singularities tau_s = -Q2/S
+  // and tau_p = Q2/X, spanning five orders of magnitude inside a single
+  // sub-box, which a stratified sampler resolves poorly. Adaptive cubature
+  // brings the agreement to ~5e-5.
+  ROOT::Math::IntegratorMultiDim ig(ROOT::Math::IntegrationMultiDim::kADAPTIVE, 1E-12, 1E-3, 100000);
   TRV2TR rv2tr(this);
   ig.SetFunction(rv2tr);
 

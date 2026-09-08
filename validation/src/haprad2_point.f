@@ -110,6 +110,14 @@ C        /phi/
       ENDIF
       WRITE (*,'(a)') '### END KIN'
 
+C     Tier 2 diagnostic: dump the exclusive-tail integrand rv2tr(ta, phik) on
+C     the same grid the C++ driver uses, so the two can be compared pointwise.
+C     rv2tr is the FUNCTION defined in ihaprad.f; the COMMON blocks it reads
+C     have been filled by the ihaprad call above.
+      IF (kin_ok .EQ. 1) THEN
+         CALL dumpexc()
+      ENDIF
+
       WRITE (*,'(a)') '### BEGIN RES'
       CALL emitd('kin_ok', DBLE(kin_ok))
       CALL emitd('sib', sib)
@@ -129,6 +137,39 @@ C     excludes them, so subtract to get the comparable quantity.
       ENDIF
       WRITE (*,'(a)') '### END RES'
 
+      END
+
+      SUBROUTINE dumpexc()
+      IMPLICIT NONE
+      INCLUDE 'haprad_consts.inc'
+      INCLUDE 'sxy.inc'
+      DOUBLE PRECISION rv2tr, arg(15), tau_mx, tau_mn
+      DOUBLE PRECISION dumval
+      CHARACTER*10 key
+      CHARACTER*32 envv
+      INTEGER i, j, nt, np
+      EXTERNAL rv2tr
+      DATA nt/9/, np/5/
+
+      CALL GETENV('HAPRAD_DUMP_EXC', envv)
+      IF (envv .EQ. ' ') RETURN
+
+      tau_mx = (sx + sqly) / (2d0 * amp2)
+      tau_mn = -y / amp2 / tau_mx
+
+      WRITE (*,'(a)') '### BEGIN EXC'
+      DO i = 1, nt
+         DO j = 0, np - 1
+            arg(1) = tau_mn + (tau_mx - tau_mn) * DBLE(i) / DBLE(nt + 1)
+            arg(2) = 2d0 * pi * DBLE(j) / DBLE(np)
+            dumval = rv2tr(2, arg)
+            WRITE (key,'(a1,i0,a1,i0)') 't', i, 'p', j
+            WRITE (*,'(a1,a10,1x,e22.14,3x,a4,e17.10,1x,a4,e17.10)')
+     &            '@', key, dumval, 'tau=', arg(1), 'phi=', arg(2)
+         ENDDO
+      ENDDO
+      WRITE (*,'(a)') '### END EXC'
+      RETURN
       END
 
       SUBROUTINE emitd(name, value)

@@ -50,7 +50,7 @@ semi-inclusive model is still missing.
 Tier 0 : FAIL   f1/f2/f3 = inf at phi=180 (hurdle H4: GSL QNG fails to converge)
                 the other three checks SKIP -- they need a working model
 Tier 1 : pass   agreement to ~4e-14 at both 6 GeV and 10.5 GeV
-Tier 2 : FAIL   C++ exclusive tail is systematically ~0.3-0.5x the Fortran
+Tier 2 : pass   agreement to 3e-5 .. 1.5e-4  (was failing by a factor of 2-3.5)
 Tier 3 : FAIL   expected: sigma_Born is uninitialised memory (hurdle H1)
 ```
 
@@ -58,11 +58,46 @@ Tier 1 passing at RG-E energies is the substantive good news: the whole
 kinematics layer is a faithful port, so the remaining defects are localised to
 the models and the integration.
 
-Tier 2 is the harness's first real catch. The deficit is systematic rather than
-noisy, and the prime suspect is the integrator: `TRadCor::ExclusiveRadiativeTail`
-uses `GSLMCIntegrator` (MISER) capped at 20000 calls per sub-box, against a
-sharply peaked 2-D integrand, where the Fortran uses adaptive `d01fce` with up
-to 100000 points. That is a hypothesis, not a diagnosis.
+### What Tier 2 found
+
+Tier 2 failed on first run, with the C++ exclusive tail a factor 2-3.5 below the
+Fortran. Dumping the integrand `rv2tr(tau, phi_k)` pointwise from both codes
+(`HAPRAD_DUMP_EXC=1`, the `EXC` block) showed it agreeing to **2e-7** over 45
+points, and swapping the integrator changed nothing -- so neither the integrand
+nor the quadrature was at fault.
+
+The cause was in `TRadCor::Initialization()`. It computed the normalisation as
+
+```cpp
+fHadKin->Evaluate();
+...
+if (fKin->T() >= 0) { N = N * sqrt(lambda_q) / (2 M p_l); }
+```
+
+but `THadronKinematics::SetMomentum()` overwrites `fKin`'s `T` with the computed
+invariant `t`, which is **negative**, whenever `p_t` was the quantity supplied.
+The test on the next line was therefore always false and the p_t-differential
+Jacobian was never applied. The FORTRAN applies it inside its
+`IF (tdif .GE. 0)` block, before `tdif` is overwritten (`ihaprad.f`).
+
+The predicted deficit `sqrt(lambda_q) / (2 M p_l)` reproduced the observed ratios
+to four decimals (2.1753 vs 2.1749; 3.1370 vs 3.1368).
+
+**Scope of the bug.** It scaled every absolute cross section -- `GetSigBorn`,
+`GetSigObs`, `GetTail` -- by a factor of 2 to 3.5 over the RG-E range. It did
+**not** affect the radiative correction factors, because `N` multiplies
+sigma_Born and both tails alike and therefore cancels in `GetFactor1/2/3`. This
+was checked directly, not just argued: with the structure functions stubbed to
+constants so that sigma_Born is real, the fix moves `sib` from 8.5670e4 to
+2.6875e5 (ratio 3.1370, the Jacobian) while `f1` stays at 1.048191. So the
+numbers `GetRC` writes out were never wrong on this account.
+
+A second, smaller change came out of the same investigation: the exclusive tail
+now uses deterministic adaptive cubature (Genz-Malik, the same family as the
+FORTRAN's NAG D01FCE) rather than MISER Monte Carlo capped at 20000 calls. That
+was *not* the bug -- both integrators gave the same answer -- but on this
+sharply peaked integrand MISER agreed with the reference only to ~1.4e-3 where
+adaptive reaches ~5e-5.
 
 ## Notes on comparability
 
