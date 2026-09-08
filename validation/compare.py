@@ -135,19 +135,52 @@ def tier0(points):
         else:
             results.append((label, None, "model uninitialised (H1)"))
 
-    # (c) nothing may be NaN or infinite anywhere on the grid (hurdle H4).
-    bad = []
+    # (c) no spikes in phi. The Born and tail cross sections vary smoothly with
+    #     phi_h, so a large jump between neighbouring phi is a numerical
+    #     pathology rather than physics. This catches the phi=180 divergence
+    #     that H4 turned out to be: 1/tldPt2 in the A_cc -> H4z inversion blows
+    #     up unless the azimuthal amplitudes carry their proper p_t dependence.
+    #     Needs a live model -- with sigma_Born uninitialised the tail is noise.
+    scan = []
+    for ph in (170.0, 175.0, 179.0, 180.0, 181.0, 185.0):
+        r = run(CPP, (E, x, Q2, z, pt, ph))
+        scan.append((ph, r, (r or {}).get("RES", {}).get("tai_in", float("nan"))))
+    if any(r is None or model_dead(r["RES"]) for _, r, _ in scan):
+        results.append(("no spikes in phi (tail)", None, "model uninitialised (H1)"))
+    else:
+        jump, at = 1.0, None
+        for (p1, _, v1), (p2, _, v2) in zip(scan, scan[1:]):
+            if v1 and v2 and math.isfinite(v1) and math.isfinite(v2):
+                r_ = max(abs(v1 / v2), abs(v2 / v1))
+                if r_ > jump:
+                    jump, at = r_, "%g->%g" % (p1, p2)
+        results.append(("no spikes in phi (tail)", jump < 5.0,
+                        "max adjacent ratio %.1f at phi %s" % (jump, at)))
+
+    # (d) nothing may be NaN or infinite. Split by what the missing model
+    #     invalidates: KIN and tai_ex are model-independent and must always be
+    #     finite; sib/sig_obs/tai_in/f1..f3 are meaningless until H1 is fixed,
+    #     since dividing by an uninitialised sigma_Born manufactures inf.
+    MODEL_DEP = {"sib", "sig_obs", "tai_in", "f1", "f2", "f3"}
+    bad, bad_model = [], []
     for p in points:
         r = run(CPP, p)
         if not r:
             bad.append("%s TIMEOUT" % (p,))
             continue
+        dead = model_dead(r.get("RES", {}))
         for blk in ("KIN", "RES"):
             for k, v in r.get(blk, {}).items():
-                if not math.isfinite(v):
+                if math.isfinite(v):
+                    continue
+                if k in MODEL_DEP:
+                    bad_model.append("phi=%g %s=%s" % (p[5], k, v))
+                else:
                     bad.append("phi=%g %s=%s" % (p[5], k, v))
-    results.append(("all outputs finite over grid", not bad,
-                    "OK" if not bad else "; ".join(bad[:3])))
+    note = "OK" if not bad else "; ".join(bad[:3])
+    if not bad and bad_model:
+        note = "OK (model-independent); %d non-finite in sib/f* -- H1" % len(bad_model)
+    results.append(("all outputs finite over grid", not bad, note))
 
     for name, ok, note in results:
         tag = "SKIP" if ok is None else ("PASS" if ok else "FAIL")

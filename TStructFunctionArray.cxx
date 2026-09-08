@@ -34,6 +34,12 @@ TStructFunctionArray::~TStructFunctionArray() {
 void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
   using namespace TMath;
 
+  // strf() in ihaprad.f opens by zeroing sfm(1..8); do the same. Degenerate
+  // shifted kinematics must contribute nothing, and TPODINL constructs a fresh
+  // TStructFunctionArray for every single integrand evaluation, so anything
+  // left unassigned here is read back as uninitialised stack.
+  for (Int_t i = 0; i < 4; ++i) fArray[i] = 0.;
+
   const Double_t &M = kMassProton;
   const Double_t &m_h = kMassDetectedHadron;
 
@@ -107,9 +113,32 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
 
     Double_t h4 = -2 * tldZ * (tldX * H3z + aa * H4z) / M / tldQ2 / tldX;
 
-    fArray[0] = h1;
-    fArray[1] = h2;
-    fArray[2] = h3;
-    fArray[3] = h4;
+    // H3z and H4z carry 1/sqrt(tldPt2) and 1/tldPt2 because this model inverts
+    // the measured azimuthal amplitudes A_c and A_cc, which enter the Born
+    // cross section multiplied by b ~ p_t and b^2 ~ p_t^2. The FORTRAN model
+    // has no such inversion (semi_inclusive_model.f builds H3/H4 directly from
+    // PDFs x FFs), so it stays regular here.
+    //
+    // The guard above admits tldPt2 == 0 (it tests >= 0), and there H4z is
+    // infinite while the h_i combine it as tldPt2 * H4z, i.e. 0 * inf = NaN.
+    // That NaN propagated all the way out through the tau and R integrals and
+    // poisoned the whole inelastic tail. It is reachable in practice: at
+    // phi_h = 180 deg the shifted p_t passes exactly through zero somewhere in
+    // the integration domain.
+    //
+    // Treat any degenerate evaluation as no contribution, which is what strf()
+    // does for tldPt2 < 0 and is the only defensible reading -- these are
+    // isolated points of the integration domain, not a region.
+    //
+    // Note this is a robustness fix, not a physics one: the 1/p_t^2 blow-up is
+    // an artifact of feeding this inversion azimuthal amplitudes that do not
+    // carry their proper p_t dependence (see hurdle H1). A model in which
+    // A_c ~ p_t and A_cc ~ p_t^2 keeps H3z and H4z finite.
+    if (Finite(h1) && Finite(h2) && Finite(h3) && Finite(h4)) {
+      fArray[0] = h1;
+      fArray[1] = h2;
+      fArray[2] = h3;
+      fArray[3] = h4;
+    }
   }
 }

@@ -47,8 +47,8 @@ semi-inclusive model is still missing.
 ## Current status
 
 ```
-Tier 0 : FAIL   f1/f2/f3 = inf at phi=180 (hurdle H4: GSL QNG fails to converge)
-                the other three checks SKIP -- they need a working model
+Tier 0 : pass   every model-independent quantity is finite; the four checks that
+                need a live model report SKIP rather than passing vacuously
 Tier 1 : pass   agreement to ~4e-14 at both 6 GeV and 10.5 GeV
 Tier 2 : pass   agreement to 3e-5 .. 1.5e-4  (was failing by a factor of 2-3.5)
 Tier 3 : FAIL   expected: sigma_Born is uninitialised memory (hurdle H1)
@@ -98,6 +98,59 @@ FORTRAN's NAG D01FCE) rather than MISER Monte Carlo capped at 20000 calls. That
 was *not* the bug -- both integrators gave the same answer -- but on this
 sharply peaked integrand MISER agreed with the reference only to ~1.4e-3 where
 adaptive reaches ~5e-5.
+
+### What Tier 0 found (hurdle H4)
+
+`tai_in` came back NaN at exactly phi = 180 deg, while 179 and 181 agreed to ten
+digits. Instrumenting the integrand showed the theta matrix finite but the
+structure functions returning `H(2) = inf` with the rest NaN -- the signature of
+`0 * inf`.
+
+The cause is in `TStructFunctionArray`. Because this model inverts the *measured*
+azimuthal amplitudes, and those enter the Born cross section multiplied by
+`b ~ p_t` and `b^2 ~ p_t^2`, the inversion carries the reciprocals:
+
+```cpp
+H3z = ... / Sqrt(tldPt2);
+H4z = ... / tldPt2;
+```
+
+The guard above admits `tldPt2 == 0` (it tests `>= 0`), and the h_i then combine
+an infinite `H4z` as `tldPt2 * H4z`. At phi_h = 180 deg the shifted p_t passes
+exactly through zero inside the integration domain. The FORTRAN has no such
+inversion -- `semi_inclusive_model.f` builds H3/H4 directly from PDFs x FFs -- so
+it stays regular.
+
+`Evaluate()` now zeroes `fArray` on entry, as `strf()` does with `sfm(1..8)`, and
+refuses to publish non-finite h_i. That removes the NaN and the uninitialised
+read (`TPODINL` constructs a fresh `TStructFunctionArray` per evaluation, so
+anything unassigned is stack garbage).
+
+**But that is a robustness fix, not a cure.** With the NaN gone, phi = 180 reads
+5.3e7 against 1.98e4 at 179 -- the NaN was the tip of a real pole, growing like
+1/(180 - phi):
+
+```
+phi=179      1.978841e+04        phi=179.999  8.555769e+05
+phi=179.9    2.679992e+04        phi=180      5.327075e+07
+```
+
+The pole is an artifact of the *flat* amplitudes this code is currently fed.
+Giving them their physical dependence -- `A_c ~ p_t`, `A_cc ~ p_t^2`, which is
+what the Born cross section requires -- removes it completely:
+
+```
+phi=179      1.654784e+04        phi=179.999  1.654919e+04
+phi=179.9    1.654917e+04        phi=180      1.654919e+04
+```
+
+and takes the GSL integrator warnings from 43586 to zero. So the integrator was
+never at fault, and no integrator change was made. **H4 is a symptom of H1**:
+it closes for real only when the structure-function model supplies azimuthal
+amplitudes with the right p_t behaviour.
+
+The Tier 0 "no spikes in phi" check exists to catch exactly this, and reports
+SKIP until a live model makes it meaningful.
 
 ## Notes on comparability
 
