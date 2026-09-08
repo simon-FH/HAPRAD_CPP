@@ -11,7 +11,14 @@ ROOTCONFIG := root-config
 ROOTCFLAGS := $(shell $(ROOTCONFIG) --cflags)
 ROOTLDFLAGS := $(shell $(ROOTCONFIG) --ldflags)
 ROOTLIBS := $(shell $(ROOTCONFIG) --libs)
-CERNLIBS := -lpdflib804 -lmathlib -lphtools -lpacklib -lkernlib -lpawlib
+# CERNLIB is not required: libTRadCor.so pulls in no CERNLIB symbols unless it
+# was built with USE_CERNLIB=1. Link against it only when asked for, so that a
+# machine without CERNLIB (and CERN_LIB unset) still builds these programs.
+CERNLIBS :=
+CERNLIB_LIBS ?= -lpdflib804
+ifeq ($(USE_CERNLIB),1)
+    CERNLIBS := -L$(CERN_LIB) $(CERNLIB_LIBS)
+endif
 
 CXX := c++ # -D DEBUG
 LD := c++
@@ -20,7 +27,7 @@ CXXFLAGS := -g -O2 -Wall -fPIC $(ROOTCFLAGS)
 LDFLAGS := -g -O2 $(ROOTLDFLAGS) -lgfortran -Wl,-rpath,$(HAPRAD_CPP)/slib
 
 INCLUDES := -I./include -I$(HAPRAD_CPP)
-LIBS := -L$(HAPRAD_CPP)/slib -lTRadCor $(ROOTLIBS) -lMathMore -L$(CERN_LIB) $(CERNLIBS)
+LIBS := -L$(HAPRAD_CPP)/slib -lTRadCor $(ROOTLIBS) -lMathMore $(CERNLIBS)
 
 PROG := GetBinning GetCentroids FitPhiPQ GetRC
 LIST := $(addprefix $(BINDIR)/, $(PROG))

@@ -52,9 +52,9 @@ if [[ -z "${HAPRAD_CPP}" ]]; then
     exit 1
 fi
 
-if [[ -z "${CERN_LIB}" ]]; then
-    echo "ERROR: variable CERN_LIB is unset."
-    exit 1
+# CERN_LIB is optional: it is only consulted when building with USE_CERNLIB=1.
+if [[ -n "${CERN_LIB}" ]]; then
+    echo "INFO: CERN_LIB is set (${CERN_LIB}); build with USE_CERNLIB=1 to link it."
 fi
 
 if [[ ${#} -ne 2 ]]; then
