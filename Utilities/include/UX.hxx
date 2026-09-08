@@ -1,6 +1,10 @@
 #ifndef UX_HXX
 #define UX_HXX
 
+// getopt(), optarg. Older libstdc++ headers pulled this in transitively;
+// current ones do not, so include it explicitly.
+#include <unistd.h>
+
 #ifndef HEADERS_HXX
 #include "Headers.hxx"
 #endif
