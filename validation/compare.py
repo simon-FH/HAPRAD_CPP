@@ -58,7 +58,7 @@ GRIDS = {
 }
 
 KIN_TOL = 1e-10   # kinematics: same formulas, both double precision
-EXC_TOL = 5e-2    # exclusive tail: same model both sides, should be close
+EXC_TOL = 1e-3    # exclusive tail: same model and same integrand both sides
 RES_TOL = 5e-2    # cross sections: see H11
 
 

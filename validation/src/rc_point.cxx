@@ -20,6 +20,7 @@
 #include "TLorentzInvariants.h"
 #include "THadronKinematics.h"
 #include "THapradException.h"
+#include "TRV2TR.h"
 #include "haprad_constants.h"
 
 #include <cstdio>
@@ -104,6 +105,33 @@ int main(int argc, char** argv) {
   {
     TRadCor rc;
     rc.CalculateRCFactor(E, x, Q2, z, pt, phi, m2th, 0.5);
+
+    // Tier 2 diagnostic: dump the exclusive-tail integrand rv2tr(tau, phi_k)
+    // itself, so it can be compared against the Fortran pointwise. This
+    // separates a mis-ported integrand from a quadrature problem. It relies on
+    // TRadCor keeping fKin/fInv/fHadKin alive after the call.
+    if (getenv("HAPRAD_DUMP_EXC") && kin_ok) {
+      const double M2 = kMassProton * kMassProton;
+      const TLorentzInvariants* iv = rc.GetLorentzInvariants();
+      const double tau_max = (iv->Sx() + iv->SqrtLq()) / (2. * M2);
+      const double tau_min = -iv->Q2() / M2 / tau_max;
+
+      TRV2TR f(&rc);
+      printf("### BEGIN EXC\n");
+      const int NT = 9, NP = 5;
+      for (int i = 1; i <= NT; ++i) {
+        for (int j = 0; j < NP; ++j) {
+          double arg[2];
+          arg[0] = tau_min + (tau_max - tau_min) * i / double(NT + 1);
+          arg[1] = 2. * kPi * j / double(NP);
+          char key[32];
+          snprintf(key, sizeof(key), "t%dp%d", i, j);
+          printf("@%-10s % .14e   tau=% .10e phi=% .10e\n", key, f(arg), arg[0], arg[1]);
+        }
+      }
+      printf("### END EXC\n");
+    }
+
     emit("kin_ok", kin_ok);
     emit("sib", rc.GetSigBorn());
     emit("sig_obs", rc.GetSigObs());
