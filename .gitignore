@@ -8,3 +8,8 @@
 **.txt
 **.png
 fit-results*
+
+# validation harness build products
+validation/bin
+validation/.obj
+validation/data
