@@ -106,90 +106,64 @@ must enforce the scaling `A_c ~ p_t`, `A_cc ~ p_t^2` in the inversion itself.
 Note the `<cos phi>` / `<cos 2phi>` caps in `semi_inclusive_model.f` do **not**
 rescue this: capping bounds the modulation but leaves `H4z ~ 1/p_t^2` at the cap.
 
-## 5. Route A — use the FORTRAN model (recommended first step)
+## 5. The machinery is correct — verified
 
-`haprad2/semi_inclusive_model.f` computes `H1..H4` from GRV94-LO PDFs x PKH
-fragmentation functions x a Gaussian k_T, plus the empirical `h3.f`/`h4.f` fits
-for the cos(phi) and cos(2 phi) terms. It is regular as p_t -> 0 (no inversion,
-therefore no reciprocals), which removes H4's pole as a side effect.
-
-**This is now buildable.** Everything it needs is already present:
-
-* `PDFSET`/`STRUCTM` — `~/cernlib/lib/libpdflib804.so`, built in commit `4e67f12`
-* `PKHFF` — `pkhff.f`, already compiled into `libTRadCor.so`
-* `init_pdf.f` — already provides `exec_structm` / `exec_pkhff` wrappers
-* `h3.f`, `h4.f`, `partons.inc`, `constants8.inc` — in `haprad2/`
-
-The change is surgical. The conversion from the Mulders basis `H1z..H4z` to the
-Akushevich basis `h1..h4` in `TStructFunctionArray` is **already a faithful port**
-— I checked it line by line against `strf()` in `ihaprad.f`, including the `aa`
-term. Only the *source* of `H1z..H4z` differs. So the work is: compile
-`semi_inclusive_model.f`, `h3.f`, `h4.f` into the library, declare
+Confirmed with the author of the C++ port: this is a deliberately data-driven
+design, with **no external model**. `TSemiInclusiveModel` exists to get the
+parameters out of our own data. Three measurables constrain three quantities,
+with `H1` and `H2` tied together because only three are independent:
 
 ```cpp
-extern "C" void semi_inclusive_model_(double* q2, double* x, double* y, double* z,
-                                      double* pt2, double* mx2, double* pl,
-                                      double* H1z, double* H2z, double* H3z, double* H4z);
+// TStructFunctionArray.cxx:90-100        FORTRAN: semi_inclusive_model.f:151
+Double_t rlt = 0.14;                   // DATA rlt/0.14d0/
+RelH1H2 = (1 + 4*SQ(M*tldX)/tldQ2) / 2 / tldX / (1 + rlt);
+H1z = H2z * RelH1H2;                   // H1 = H2/(2x(1+rlt)) * (1+4mp^2x^2/q2)
 ```
 
-and replace the A/Ac/Acc block with that call.
+That is the sigma_L/sigma_T closure, identical to the FORTRAN. `A` then fixes
+`H2` (and `H1` through it), `A_c` fixes `H3`, `A_cc` fixes `H4`.
 
-Linking the reference implementation verbatim rather than re-porting it has a
-large advantage: Tier 3 becomes a true apples-to-apples comparison — same model
-both sides — so any residual disagreement is a genuine defect rather than a
-modelling difference.
+**The inversion round-trips exactly.** Injecting known amplitudes, computing
+`sigma_Born(phi)` at twelve angles and projecting out the harmonics returns what
+went in:
 
-### Landmines
+```
+              injected      recovered
+   Ac/A       -0.137000     -0.137000
+   Acc/A      +0.041000     +0.041000
+```
 
-1. **`semi_inclusive_model.f:178` is an unconditional `stop`:**
+So the whole chain — the `RelH1H2` closure, the `H3z`/`H4z` formulas, the
+Mulders-to-Akushevich conversion, and `TBorn`'s theta_B contraction — is
+self-consistent. **Nothing here needs porting or replacing. The only thing
+missing is the input.**
 
-   ```fortran
-   if (abs(4.d0 * m_cos_phi) .gt. 0.9d0) stop      ! <-- aborts
-   if (abs(4.d0 * m_cos_phi) .gt. 0.9d0) then      ! <-- cap, unreachable
-      H3m = 0.9d0 * sign(1.d0,m_cos_phi) * ...
-   ```
+A useful consequence: a global rescaling of `A` cancels in the RC factor, since
+`sigma_Born` and both tails scale together. **The fit does not need absolute
+normalisation or luminosity** — only the correct *shape* in
+`(Q2, x_B, z_h, p_t^2)` and the correct harmonic ratios.
 
-   A debugging leftover that makes the intended cap dead code and kills the
-   process instead. It must be removed before linking, or any RG-E point where
-   the modulation exceeds the bound takes the whole job down. (This is presumably
-   part of why Klimenko's group reported making the code "return zero XSEC
-   instead of crashing".)
+An earlier version of these notes recommended linking the FORTRAN PDF x FF model
+instead. That was based on a misreading of the design and is withdrawn. PDFLIB
+remains built and available, and is still what makes `haprad2` runnable as the
+Tier 1/2/3 reference, which is its own justification.
 
-2. **`nc`-counted one-time init.** `init_pdf` and the FF tables are initialised
-   on the first call via a saved counter, and `IFINI` is passed through
-   `COMMON /FRAGINI/`. Fine single-threaded; do not call it from threads.
+## 6. The actual work: producing the amplitudes
 
-3. **Data files by relative path.** `pkhff.f` opens `plo.grid`, `pnlo.grid`,
-   `klo.grid`, `knlo.grid`, `hlo.grid`, `hnlo.grid` from the cwd, as
-   `exclusive_model` does with `pi_n_maid.dat`. `validation/data/` already
-   symlinks all of these.
+The pipeline, end to end:
 
-4. **Hard-wired to pi+ on a proton.** `ISET=1, ICHARGE=1` in the FF call.
-
-### Coverage at RG-E — the thing to check before trusting it
-
-| ingredient | validity | RG-E (pi+, DIS cuts) |
-|---|---|---|
-| GRV94 LO | `SCALE = max(sqrt(Q2), 1)` | Q2 up to 8.5 |
-| Gaussian width `sgmpt(x,z)` | clamped to [0.02, 0.15] | fitted to EG2-era data |
-| `mx2 < (mp+mpi)^2` | returns zero | fires near threshold |
-| `h3`/`h4` fits | `Q0=1`, `lambda=0.25` | `(log(Q2/L^2)/log(Q0/L^2))^(bb/x)` grows fast at small x |
-
-`h4.f` in particular raises a logarithm to the power `bb/x` with `bb = 6.88`; at
-`x = 0.015` that exponent is ~460. Worth plotting over the RG-E range before
-trusting it.
-
-**The lesson from `~/externals/CLAS12_MIGRATION_PLAN.md` applies directly here:**
-*a replacement model must be valid over the integration domain, not just over the
-kinematic points you ask for.* The tail integrals sample shifted kinematics well
-outside the Born point.
-
-## 6. Route B — data-driven amplitudes (the iteration step)
-
-Both papers insist the RC procedure must be **iterative**: fit the corrected
-data, feed that fit back as the model, repeat. Route B is that step, and it is
-what the `Utilities` chain was built for. It should be layered on top of a
-working Route A, not instead of it.
+1. Bin the data in `(Q2, x_B, z_h, p_t^2)`.
+2. In each bin, histogram `phi_PQ` — the azimuthal angle about the virtual
+   photon.
+3. Acceptance-correct that histogram.
+4. Fit `A + A_c cos(phi) + A_cc cos(2 phi)`; the three parameters are this bin's
+   amplitudes.
+5. Write `(Q2, x_B, z_h, p_t, A, A_c, A_cc)` per bin — that is
+   `newphihist.root`.
+6. `TSemiInclusiveModel` loads it; `TStructFunctionArray` looks up and inverts
+   to `H1..H4` (§5).
+7. HAPRAD computes the RC.
+8. Apply the RC to the data, refit, repeat — the iteration both papers require.
 
 ### What the chain actually produces today
 
@@ -276,9 +250,15 @@ Measurable, no judgement calls:
 
 ## 8. Open questions
 
-1. **Route A then B.** Not a choice between them: B needs a model underneath it
-   to cover the shifted kinematics the tails sample (§6), and needs one anyway to
-   seed iteration 0. A is a day's work and unblocks every check.
+1. **Coverage outside the measured region — the open one.** A single Born point
+   at `(Q2=2.5, x=0.234, z=0.34, p_t^2=0.18)` has its tails sample
+   `Q2 1.06..8.46`, `x 0.234..0.830`, `z 0.34..0.83`, `p_t^2 0.18..0.48`.
+   RG-E pi+ statistics reach `x ~ 0.695`, so the amplitudes are needed where
+   there is no data, and high-x/high-z is exactly where the statistics thin out.
+   Today that is handled by silently clamping to the edge bin. Does "fit
+   `func(Q2,xB,Zh,Pt2)`" mean a per-bin table, or a smooth functional form in
+   those four variables that can be evaluated outside the measured region? The
+   second would resolve this cleanly. Worth settling before building the fitter.
 2. **Which hadron?** The model is pi+/proton throughout. RG-E wants pi-, and the
    exclusive grid would need `pim`. `haprad3` ships one.
 3. **Nuclear targets.** This is a free-proton calculation; `GetFactor3`'s
