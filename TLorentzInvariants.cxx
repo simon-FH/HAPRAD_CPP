@@ -66,7 +66,10 @@ void TLorentzInvariants::SetLambdas() {
   Double_t M = kMassProton;
   Double_t m;
 
-  switch (fConfig->PolarizationType()) {
+  // The lepton mass depends on which lepton was registered, not on the target
+  // polarisation. Both default such that the electron mass is selected, so this
+  // never changed a number -- but it would have the moment either was set.
+  switch (fConfig->LeptonType()) {
     case 1:
       m = kMassElectron;
       break;

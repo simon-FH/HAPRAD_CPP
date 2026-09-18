@@ -101,6 +101,15 @@ void TRadCor::CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z,
   Double_t Mx2 = SQ(kMassProton) + S_x * (1 - fKin->Z()) + t_temp;  // HH: check if T is the correct one, if the evaluate is called
                                                                     // correctly
 
+  // Results are members and used to persist across calls: a point rejected on
+  // kinematics left GetSigBorn()/GetSigObs()/GetTail() reporting the PREVIOUS
+  // point's values. GetFactor1/2/3 were shielded by fKinError, but nothing else
+  // was.
+  sigma_born = 0.;
+  sig_obs = 0.;
+  tai[0] = 0.;
+  tai[1] = 0.;
+
   fKinError = false;
   fParametersError = false;
 
@@ -148,22 +157,25 @@ Double_t TRadCor::GetRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z, D
 
   CalculateRCFactor(E, x, Q2, z, p_t, phi, maxMx2, targProp);
 
-  if (fKinError || fParametersError)
+  if (fKinError || fParametersError || sigma_born == 0.)
     return 0;
-  else
-    return (sig_obs + tai[0] + tai[1]) / sigma_born;
+  else {
+    Double_t factor = (sig_obs + tai[0] + tai[1]) / sigma_born;
+    return TMath::Finite(factor) ? factor : 0.;
+  }
 }
 
 Double_t TRadCor::GetFactor1(void) {
   // Return the radiative correction factor without the exclusive radiative
   // tail contribution. You need to call CalculateRCFactor(...) first.
 
-  if (fKinError || fParametersError) {
+  if (fKinError || fParametersError || sigma_born == 0.) {
     return 0;
   } else {
     Double_t sigma_obs_f1 = sig_obs + tai[0];
 
-    return sigma_obs_f1 / sigma_born;
+    Double_t factor = sigma_obs_f1 / sigma_born;
+    return TMath::Finite(factor) ? factor : 0.;
   }
 }
 
@@ -173,12 +185,13 @@ Double_t TRadCor::GetFactor2(void) {
   //
   // This is the default value, returned by GetRCFactor(...).
 
-  if (fKinError || fParametersError) {
+  if (fKinError || fParametersError || sigma_born == 0.) {
     return 0;
   } else {
     Double_t sigma_obs_f2 = sig_obs + tai[0] + tai[1];
 
-    return sigma_obs_f2 / sigma_born;
+    Double_t factor = sigma_obs_f2 / sigma_born;
+    return TMath::Finite(factor) ? factor : 0.;
   }
 }
 
@@ -187,12 +200,13 @@ Double_t TRadCor::GetFactor3(void) {
   // tail contribution divided by 2. You need to call CalculateRCFactor(...)
   // first.
 
-  if (fKinError || fParametersError) {
+  if (fKinError || fParametersError || sigma_born == 0.) {
     return 0;
   } else {
     Double_t sigma_obs_f3 = sig_obs + tai[0] + tai[1] * NAZ;
 
-    return sigma_obs_f3 / sigma_born;
+    Double_t factor = sigma_obs_f3 / sigma_born;
+    return TMath::Finite(factor) ? factor : 0.;
   }
 }
 

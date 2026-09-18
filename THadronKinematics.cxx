@@ -60,7 +60,10 @@ void THadronKinematics::SetMomentum(void) {
 
     Double_t t = SQ(m_h) - fInv->Q2() + 2 * (fSqNuQ * fPl - fNu * fEh);
     fKin->SetT(t);
-    std::cout << "    p_l: " << fPl << "\t" << t << "\t" << fPl - t + fInv->Q2() - SQ(m_h) + 2 * fNu * fEh / 2 / fSqNuQ << std::endl;
+    // Diagnostic only. The residual is p_l - (t + Q2 - m_h^2 + 2 nu E_h)/(2 sqrt(nu^2+Q2));
+    // the parentheses were missing, so the printed value was meaningless.
+    std::cout << "    p_l: " << fPl << "\t" << t << "\t"
+              << fPl - (t + fInv->Q2() - SQ(m_h) + 2 * fNu * fEh) / 2 / fSqNuQ << std::endl;
   } else {
     fPl = (fKin->T() + fInv->Q2() - SQ(m_h) + 2 * fNu * fEh) / 2 / fSqNuQ;
 
@@ -116,7 +119,10 @@ void THadronKinematics::SetV12(void) {
   Double_t M = kMassProton;
   Double_t m;
 
-  switch (fConfig->PolarizationType()) {
+  // The lepton mass depends on which lepton was registered, not on the target
+  // polarisation. Both default such that the electron mass is selected, so this
+  // never changed a number -- but it would have the moment either was set.
+  switch (fConfig->LeptonType()) {
     case 1:
       m = kMassElectron;
       break;
