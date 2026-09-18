@@ -48,19 +48,13 @@ class TRadCor {
   // Target Z and A proportion NAZ = Z/A
   Double_t NAZ;
 
-  //  Kinematic variables
-  Double_t t_min;
-  Double_t t_max;
-
   // Results
-  Double_t rc;
   Double_t sigma_born;  // sigma_0
   Double_t sig_obs;     // sigma_{obs}
   Double_t tai[2];
 
   // Integration
   Double_t N;  // Normalization factor
-  Int_t ita;
 
   // Kinematical error or not
   Bool_t fKinError;

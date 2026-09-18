@@ -28,12 +28,27 @@ void SemiInclusiveModel(Double_t q2, Double_t X, Double_t Y, Double_t Z, Double_
 
   static bool initialized;
 
+  // Every early return below (bad kinematics, missing file, below threshold)
+  // used to leave these untouched, i.e. as whatever the caller's stack held.
+  // Same defect, and same fix, as strf()'s sfm(i) = 0 in ihaprad.f.
+  A = 0.;
+  Ac = 0.;
+  Acc = 0.;
+
   gSystem->Load("libTree");
 
   if (!initialized) {
     initialized = true;
     TFile file("newphihist.root");
     TNtuple* tuple = (TNtuple*)file.Get("AAcAcc_data");
+    // Neither the open nor the Get was checked: a missing or unexpected file
+    // dereferenced a null pointer on the next line.
+    if (file.IsZombie() || tuple == 0) {
+      std::cerr << "TSemiInclusiveModel: cannot read 'AAcAcc_data' from "
+                << "newphihist.root; semi-inclusive structure functions "
+                << "unavailable." << std::endl;
+      return;
+    }
     Float_t rXb, rQ2, rZh, rPt, rA, rAc, rAcc;
     tuple->SetBranchAddress("Q2", &rQ2);
     tuple->SetBranchAddress("Xb", &rXb);
@@ -76,10 +91,6 @@ void SemiInclusiveModel(Double_t q2, Double_t X, Double_t Y, Double_t Z, Double_
   //    std::cout << "Vals: " <<  q2 << " " << X << " " << X << " " << H3Hist.GetBinContent(H4Hist.GetBin(bin)) << std::endl;
   //    std::cout << q2 << " " << X << " " << X << " " << H4Hist.GetBinContent(H4Hist.GetBin(bin))  << std::endl;
 
-  A = H12Hist.GetBinContent(H12Hist.GetBin(bin));
-    A = H12Hist.GetBinContent(H12Hist.GetBin(bin));
-  A = H12Hist.GetBinContent(H12Hist.GetBin(bin));
-    A = H12Hist.GetBinContent(H12Hist.GetBin(bin));
   A = H12Hist.GetBinContent(H12Hist.GetBin(bin));
   Ac = H3Hist.GetBinContent(H3Hist.GetBin(bin));
   Acc = H4Hist.GetBinContent(H4Hist.GetBin(bin));

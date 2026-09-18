@@ -18,8 +18,9 @@ class THapradConfig {
 
   void SetPolarization(Int_t type) { fPolType = type; };
   void SetLepton(Int_t type) { fLepton = type; };
-  void SetIntegrationPhiRad(Int_t type) { fPhiHad = type; };
-  void SetIntegrationPhiHad(Int_t type) { fPhiRad = type; };
+  // These two used to write each other's field.
+  void SetIntegrationPhiRad(Int_t type) { fPhiRad = type; };
+  void SetIntegrationPhiHad(Int_t type) { fPhiHad = type; };
 
   void SetEpsPhiR(Double_t value) { fEpsPhiR = value; };
   void SetEpsTau(Double_t value) { fEpsTau = value; };

@@ -81,8 +81,7 @@ $(OBJ_DIR)/%Dict.o: $(DICT_DIR)/%Dict.cxx
 	$(ROOTCFLAGS) $(LOCALINCLUDES) -c $< -o $@
 
 $(OBJ_DIR)/%.o: %.cxx
-	@$(call make-depend,$<,$@,$(@F:.o=.d))
-	$(ROOTCFLAGS) $(LOCALINCLUDES) -c $< -o $@
+	$(ROOTCFLAGS) $(LOCALINCLUDES) -MMD -MP -MF $(DEP_DIR)/$(@F:.o=.d) -c $< -o $@
 
 checkdirs: $(SLIB_DIR) $(OBJ_DIR) $(DICT_DIR) $(DEP_DIR)
 
