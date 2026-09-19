@@ -70,13 +70,8 @@ int main(int argc, char **argv) {
   // the model is prepared for pions, that explains the kMassPion term here
   Double_t m = TMath::Power((kMassNeutron + kMassPion), 2);
   Double_t f1, f3;
-  Double_t a1, a2, a3;
 
   TRadCor rc;
-
-  a1 = 1;
-  a2 = 0;
-  a3 = a1 / a2;
 
   // define and create output file
   std::ofstream out;
@@ -90,11 +85,15 @@ int main(int argc, char **argv) {
   // loop over bins
   for (Int_t i = 0; i < (Int_t)phi_centroid.size(); i++) {
     // calculate rc factors
-    rc.CalculateRCFactor(5.015, xb_centroid[i], q2_centroid[i], zh_centroid[i], pt_centroid[i], phi_centroid[i], m, NAZ);
+    // NOTE: phi is passed in DEGREES. EG2 ntuples store PhiPQ in degrees, but
+    // RG-E stores phi_PQ in RADIANS -- convert at the source, or every angle
+    // silently shrinks by a factor of 180/pi.
+    rc.CalculateRCFactor(gBeamEnergy, xb_centroid[i], q2_centroid[i], zh_centroid[i], pt_centroid[i], phi_centroid[i], m, NAZ);
+    // GetFactor1/3 now return 0 rather than inf or NaN, so the old guard --
+    // IsNaN plus a comparison against a deliberately constructed 1/0 -- is no
+    // longer needed. It also missed overflow to a huge finite value.
     f1 = rc.GetFactor1();
     f3 = rc.GetFactor3();
-    if (TMath::IsNaN(f1) || f1 == a3) f1 = 0;
-    if (TMath::IsNaN(f3) || f3 == a3) f3 = 0;
     // if any of the centroids is zero, null the rc factor
     Bool_t emptyBin = xb_centroid[i] == 0. || q2_centroid[i] == 0. || zh_centroid[i] == 0. || pt_centroid[i] == 0. || phi_centroid[i] == 0.;
     if (emptyBin) {

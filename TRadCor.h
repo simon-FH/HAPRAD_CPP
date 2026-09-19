@@ -13,6 +13,10 @@ class TRadCor {
   TRadCor();
   ~TRadCor();
 
+  // UNITS: E, Q2, p_t, maxMx2 in GeV powers; phi in DEGREES (it is divided by
+  // kRadianDeg internally). EG2 ntuples store PhiPQ in degrees, RG-E stores
+  // phi_PQ in RADIANS -- passing the latter straight through shrinks every
+  // angle by 180/pi with no warning.
   void CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z, Double_t p_t, Double_t phi, Double_t maxMx2, Double_t targProp);
   Double_t GetRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z, Double_t p_t, Double_t phi, Double_t maxMx2, Double_t targProp);
 
