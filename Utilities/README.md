@@ -34,6 +34,40 @@ switched off; the table records which. See `PLAN.md` (Phase 1) for what A is
 and how it is normalised, and `validation/closure_producer.py` and
 `validation/closure_normalisation.py` for the closure tests.
 
+## MakeRCGrid, ApplyRC -- radiative-correction weights (CLAS12)
+
+HAPRAD takes ~0.5 s per call, so it is not run per event. It is evaluated once
+on a grid of nodes in (Q2, nu, z, p_t, phi), and every event gets the RC factor
+interpolated at its own kinematics, written as a friend tree:
+
+```bash
+./run_rc_grid.sh config/rge_pip.cfg table.root grid.root [jobs]            # parallel chunks + merge
+./check_rc_grid.py config/rge_pip.cfg grid.root table.root 2000 <ntuples>  # interpolation error budget
+bin/ApplyRC config/rge_pip.cfg grid.root run_file.root run_file_rc.root   # one job per input file
+```
+
+```cpp
+dt->AddFriend("RC", "run_file_rc.root");
+dt->Draw("Q2", "RC.w * (RC.selected && RC.rc_status <= 1)");
+```
+
+* The nodes (`rc_nodes_*`), beam energy and particle come from the same config
+  as the table. A grid belongs to one table: each iteration needs a new one.
+* On the cluster, `MakeRCGrid run <config> <table> <chunk> <nchunks> <out>` is
+  one job of an array; merge the chunks with `hadd`. The grid refuses to load
+  if a chunk is missing or merged twice.
+* HAPRAD reads its MAID grid `pi_n_maid.dat` from the **working directory**;
+  the scripts run in `HAPRAD_DATA_DIR` (default `../haprad2`). Without the file
+  the library now stops with an error -- it used to return an exclusive tail of
+  exactly zero.
+* The grid stores the parts of the RC factor separately (Born x virtual/soft,
+  inelastic tail, exclusive tail). `ApplyRC` leaves the exclusive tail out
+  unless `rc_exclusive_tail = yes`, which it refuses for a table in arbitrary
+  units (see the luminosity note above).
+* Friend branches: `rc`, `rc_noex`, `w = 1/rc`, `rc_status` (0 full grid
+  support, 1 partial, 2 outside the grid, 3 none, 4 other particle or beam),
+  `rc_cover`, `selected` (passes the config's cuts).
+
 ## The EG2 chain (CLAS6)
 
 The programs below are the original EG2 analysis chain.

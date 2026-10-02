@@ -82,7 +82,8 @@ def main():
     print("FORTRAN reference (full calculation, its own model) ...")
     ref = [at("haprad2_point", p) for p in POINTS]
 
-    tmp = tempfile.mkdtemp(prefix="tblconv_")
+    tmpdir = tempfile.TemporaryDirectory(prefix="tblconv_")  # removed when main() returns
+    tmp = tmpdir.name
     rows = []
     for label, spec in grids:
         path = os.path.join(tmp, "t.root")

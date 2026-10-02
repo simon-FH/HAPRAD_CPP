@@ -147,7 +147,8 @@ def run(cmd, **kw):
 
 def main():
     n = sys.argv[1] if len(sys.argv) > 1 else "3000000"
-    tmp = tempfile.mkdtemp(prefix="normclosure_")
+    tmpdir = tempfile.TemporaryDirectory(prefix="normclosure_")  # removed when main() returns
+    tmp = tmpdir.name
     box = "%g:%g,%g:%g,%g:%g,%g:%g" % BOX
     pts = run([os.path.join(BIN, "make_weighted_events"), "points", "7", n, E, box]).stdout
     harm = run([os.path.join(BIN, "born_harmonics")], input=pts, cwd=DATA).stdout

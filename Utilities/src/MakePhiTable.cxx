@@ -38,7 +38,7 @@
 // so that an uncorrected table cannot be mistaken for a real one.
 
 #include "TRadCor.h"
-#include "ConfigFile.h"
+#include "RGESelection.hxx"
 #include "haprad_constants.h"
 
 #include "TChain.h"
@@ -61,77 +61,9 @@
 
 namespace {
 
-const char* kAxis[5] = {"Q2", "nu", "z", "pt2", "phi"};
-const char* kBinKey[5] = {"bins_Q2", "bins_nu", "bins_z", "bins_pt2", "bins_phi"};
-
-struct Config {
-  std::string text;  // verbatim, stored in every output
-  Double_t E, Etol;
-  Int_t pid;
-  Double_t Q2min, W2min, ymax, zmin, zmax, pt2max, Mxmin, vzmin, vzmax;
-  Int_t n[5];
-  Double_t lo[5], hi[5];
-  Int_t fitMinPhiBins;
-  Double_t fitMinEvents;
-  std::string weightBranch;  // empty: every event counts 1
-  Double_t lumi;             // events per nb of cross section; 1 = arbitrary units
-};
-
-bool LoadConfig(const char* path, Config& c) {
-  std::ifstream in(path);
-  if (!in) {
-    fprintf(stderr, "cannot read config %s\n", path);
-    return false;
-  }
-  std::stringstream ss;
-  ss << in.rdbuf();
-  c.text = ss.str();
-
-  try {
-  ConfigFile cf(path);
-  c.E = cf.read<Double_t>("beam_energy");
-  c.Etol = cf.read<Double_t>("beam_energy_tolerance", 0.005);
-  c.pid = cf.read<Int_t>("pid", 211);
-  c.Q2min = cf.read<Double_t>("Q2_min", 1.);
-  c.W2min = cf.read<Double_t>("W2_min", 4.);
-  c.ymax = cf.read<Double_t>("y_max", 0.85);
-  c.zmin = cf.read<Double_t>("z_min", 0.);
-  c.zmax = cf.read<Double_t>("z_max", 1.);
-  c.pt2max = cf.read<Double_t>("pt2_max", 1e9);
-  c.Mxmin = cf.read<Double_t>("Mx_min");
-  c.vzmin = cf.read<Double_t>("vz_min", -1e9);
-  c.vzmax = cf.read<Double_t>("vz_max", 1e9);
-  c.fitMinPhiBins = cf.read<Int_t>("fit_min_phi_bins", 4);
-  c.fitMinEvents = cf.read<Double_t>("fit_min_events", 50.);
-  c.weightBranch = cf.read<std::string>("weight_branch", "");
-  c.lumi = cf.read<Double_t>("luminosity", 1.);
-  if (!(c.lumi > 0.)) {
-    fprintf(stderr, "luminosity must be positive\n");
-    return false;
-  }
-  for (Int_t d = 0; d < 5; ++d) {
-    std::istringstream b(cf.read<std::string>(kBinKey[d]));
-    if (!(b >> c.n[d] >> c.lo[d] >> c.hi[d]) || c.n[d] < 1 || !(c.hi[d] > c.lo[d])) {
-      fprintf(stderr, "%s must be '<nbins> <low> <high>'\n", kBinKey[d]);
-      return false;
-    }
-  }
-  } catch (ConfigFile::key_not_found& e) {
-    fprintf(stderr, "config %s: required key '%s' is missing\n", path, e.key.c_str());
-    return false;
-  }
-  return true;
-}
-
-// M_x^2 = (P + q - p_h)^2 from quantities in the ntuple. The hadron is taken to
-// be a pion; the result matched HAPRAD's own missing-mass rejections exactly
-// on run 020026 (PLAN.md 0.1).
-Double_t Mx2(Double_t W2, Double_t nu, Double_t Q2, Double_t zh, Double_t thetaPQ) {
-  const Double_t m = kMassPion, M = kMassProton;
-  const Double_t Eh = zh * nu;
-  const Double_t ph = std::sqrt(std::max(0., Eh * Eh - m * m));
-  return W2 + m * m - 2. * (M + nu) * Eh + 2. * std::sqrt(nu * nu + Q2) * ph * std::cos(thetaPQ);
-}
+using rge::Config;
+using rge::LoadConfig;
+const char* const* kAxis = rge::kTableAxis;
 
 int Fill(const Config& c, const char* outPath, int nIn, char** in) {
   TChain chain("DT");
@@ -141,18 +73,9 @@ int Fill(const Config& c, const char* outPath, int nIn, char** in) {
     sources += TString(in[i]) + "\n";
   }
 
-  Float_t pid, Eb, Q2, nu, yb, W2, zh, pt2, phi, theta, vz, w = 1.f;
-  struct B { const char* name; Float_t* v; } br[] = {
-      {"pid", &pid}, {"E_beam", &Eb}, {"Q2", &Q2}, {"nu", &nu}, {"y_bjorken", &yb}, {"W2", &W2},
-      {"z_h", &zh}, {"p_T2", &pt2}, {"phi_PQ", &phi}, {"theta_PQ", &theta}, {"vz", &vz}};
-  chain.SetBranchStatus("*", 0);
-  for (const B& b : br) {
-    chain.SetBranchStatus(b.name, 1);
-    if (chain.SetBranchAddress(b.name, b.v) < 0) {
-      fprintf(stderr, "input lacks branch %s\n", b.name);
-      return 1;
-    }
-  }
+  rge::Event e;
+  Float_t w = 1.f;
+  if (!rge::BindEvent(chain, e)) return 1;
   // Optional per-event weight -- e.g. 1/acceptance, or a cross section in a
   // closure test. Any overall scale: the fit uses the cell's mean weight.
   if (!c.weightBranch.empty()) {
@@ -167,43 +90,25 @@ int Fill(const Config& c, const char* outPath, int nIn, char** in) {
   for (Int_t d = 0; d < 5; ++d) counts.GetAxis(d)->SetName(kAxis[d]);
   counts.Sumw2();
 
-  // Every stage that removes events, in order.
-  const char* stages[] = {"read", "pid", "beam energy", "Q2", "W2", "y", "z", "pt2", "vertex", "missing mass",
-                          "inside grid"};
-  const Int_t nStages = sizeof(stages) / sizeof(stages[0]);
+  // Every stage that removes events, in order: the shared selection, then the grid.
+  const Int_t nStages = rge::kNStages + 1;
   TH1D flow("cutflow", "events surviving each cut", nStages, 0, nStages);
-  for (Int_t i = 0; i < nStages; ++i) flow.GetXaxis()->SetBinLabel(i + 1, stages[i]);
+  for (Int_t i = 0; i < rge::kNStages; ++i) flow.GetXaxis()->SetBinLabel(i + 1, rge::kStage[i]);
+  flow.GetXaxis()->SetBinLabel(nStages, "inside grid");
 
   const Double_t radToDeg = 180. / TMath::Pi();
   const Long64_t n = chain.GetEntries();
   for (Long64_t i = 0; i < n; ++i) {
     chain.GetEntry(i);
-    Int_t s = 0;
-    flow.Fill(s++);
-    if (Int_t(pid) != c.pid) continue;
-    flow.Fill(s++);
-    if (std::fabs(Eb - c.E) > c.Etol) continue;  // one beam energy per table
-    flow.Fill(s++);
-    if (!(Q2 > c.Q2min)) continue;
-    flow.Fill(s++);
-    if (!(W2 > c.W2min)) continue;
-    flow.Fill(s++);
-    if (!(yb < c.ymax)) continue;
-    flow.Fill(s++);
-    if (!(zh > c.zmin && zh < c.zmax)) continue;
-    flow.Fill(s++);
-    if (!(pt2 >= 0. && pt2 < c.pt2max)) continue;
-    flow.Fill(s++);
-    if (!(vz > c.vzmin && vz < c.vzmax)) continue;
-    flow.Fill(s++);
-    if (!(Mx2(W2, nu, Q2, zh, theta) > c.Mxmin * c.Mxmin)) continue;
-    flow.Fill(s++);
-    const Double_t v[5] = {Q2, nu, zh, pt2, phi * radToDeg};  // RG-E stores phi_PQ in radians
+    const Int_t passed = rge::Stages(c, e);
+    for (Int_t s = 0; s < passed; ++s) flow.Fill(s);
+    if (passed < rge::kNStages) continue;
+    const Double_t v[5] = {e.Q2, e.nu, e.zh, e.pt2, e.phi * radToDeg};  // RG-E stores phi_PQ in radians
     Bool_t inside = true;
     for (Int_t d = 0; d < 5; ++d)
       if (v[d] < c.lo[d] || v[d] >= c.hi[d]) inside = false;
     if (!inside) continue;
-    flow.Fill(s++);
+    flow.Fill(rge::kNStages);
     counts.Fill(v, w);
   }
 
@@ -216,7 +121,7 @@ int Fill(const Config& c, const char* outPath, int nIn, char** in) {
   out.Close();
 
   printf("%s\n", outPath);
-  for (Int_t i = 0; i < nStages; ++i) printf("  %-14s %12.0f\n", stages[i], flow.GetBinContent(i + 1));
+  for (Int_t i = 0; i < nStages; ++i) printf("  %-14s %12.0f\n", flow.GetXaxis()->GetBinLabel(i + 1), flow.GetBinContent(i + 1));
   return 0;
 }
 
