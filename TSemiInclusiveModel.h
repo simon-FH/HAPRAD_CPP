@@ -31,6 +31,17 @@
 //   THnD "fitted"           optional. Non-zero where the cell holds a fit.
 //                           Absent means every cell is fitted.
 //
+//   TNamed "interpolation"  optional, "linear" (default) or "log".
+//                             log: interpolate log(A), and the ratios Ac/A and
+//                                  Acc/A, linearly. A carries a steep,
+//                                  cross-section-like kinematic dependence
+//                                  (roughly 1/Q^4) that linear interpolation
+//                                  between cell centres follows badly; its
+//                                  logarithm and the modulation ratios are
+//                                  smooth. Requires A > 0 in every fitted cell
+//                                  used; cells with A <= 0 are treated as
+//                                  unfitted.
+//
 //   TNamed "pt_scaling"     optional, "raw" (default) or "reduced".
 //                             raw:     the THnDs hold Ac and Acc themselves.
 //                             reduced: they hold Ac/p_t and Acc/p_t^2, and the
@@ -75,6 +86,7 @@ class TSemiInclusiveModel {
   Bool_t IsLoaded() const { return fA != nullptr; }
   const std::string& GetPath() const { return fPath; }
   Bool_t IsPtReduced() const { return fPtReduced; }
+  Bool_t IsLogInterpolation() const { return fLogA; }
 
   void SetInterpolation(Bool_t on) { fInterpolate = on; }
   Bool_t GetInterpolation() const { return fInterpolate; }
@@ -103,6 +115,7 @@ class TSemiInclusiveModel {
   EVariable fVar[4];
   Bool_t fPtReduced;
   Bool_t fInterpolate;
+  Bool_t fLogA;
 
   mutable Long64_t fNLookups;
   mutable Long64_t fNOutOfRange;

@@ -241,10 +241,11 @@ Measurable, no judgement calls:
 
 * Tier 0: all five checks PASS, none SKIP
 * Tier 3: `sib`, `sig_obs`, `tai_in`, `f1..f3` agree with HAPRAD 2.0. Expect
-  agreement at the 1e-3 level, not machine precision — the C++ forms
+  agreement at the few-1e-3 level, not machine precision — the C++ forms
   `sigma_B * exp(delta_inf) * (1 + delta_VR + delta_vac)` where the FORTRAN
   forces `delta_inf = 0` and uses `sigma_B * (1 + alpha/pi * delta)` (hurdle H11).
-  Equivalent to O(alpha^2), but not digit-for-digit.
+  Equivalent to O(alpha^2), but not digit-for-digit: measured at 0.2-0.4% of
+  the RC factor in PLAN.md 2.3 (an earlier estimate here said ~1e-3).
 * H4 closes on its own: the `phi=180` spike disappears when the amplitudes carry
   their proper p_t dependence.
 

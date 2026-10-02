@@ -21,6 +21,12 @@ class TRadCor {
   void CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z, Double_t p_t, Double_t phi, Double_t maxMx2, Double_t targProp);
   Double_t GetRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z, Double_t p_t, Double_t phi, Double_t maxMx2, Double_t targProp);
 
+  // The Born cross section alone: same kinematics and normalisation as
+  // CalculateRCFactor(), but no delta factors and no tail integrals, so it is
+  // cheap. Returns 0 (and sets the kinematic-error state) if the point is
+  // rejected. Same units and conventions as CalculateRCFactor; phi in degrees.
+  Double_t CalculateBorn(Double_t E, Double_t x, Double_t Q2, Double_t z, Double_t p_t, Double_t phi);
+
   Double_t GetFactor1(void);
   Double_t GetFactor2(void);
   Double_t GetFactor3(void);

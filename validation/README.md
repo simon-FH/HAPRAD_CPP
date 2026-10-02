@@ -50,6 +50,34 @@ and how many fell outside the table, in an unfitted cell, or below threshold.
 lookup, for comparison only -- see PLAN.md 0.2 for why that mode breaks the
 inner R integral.
 
+### Tables from HAPRAD 2.0's own model (PLAN.md 2.3)
+
+Tier 3 can only agree if both codes see the same physics. These tools build a
+table *from* the FORTRAN's PDF x FF model, so it can be fed to the C++:
+
+```bash
+B="18:0.5:10,16:1:10.5,20:0:1,24:0:1.5"            # nQ2:lo:hi,nnu:..,nz:..,npt2:..
+./bin/make_model_table points $B 10.5473            > cells.txt
+(cd data && ../bin/born_harmonics < ../cells.txt)  > harm.txt
+./bin/make_model_table build  $B 10.5473 harm.txt table.root
+MODEL_TABLE_INTERP=log ./table_convergence.py       # Tier 3 vs grid resolution
+```
+
+* `born_harmonics` is HAPRAD 2.0's Born cross section alone -- the setup of
+  `ihaprad()` and the vv10/vv20 part of `sphih()`, copied without the tail
+  integrals. It matches the full `haprad2_point` to 6e-13. It links a copy of
+  `semi_inclusive_model.f` with the unconditional `stop` at line 178 removed
+  (the build fails if the substitution does not happen); the reference used by
+  `haprad2_point` is untouched.
+* `make_model_table build` divides the FORTRAN harmonics by the C++'s own
+  kinematic factor K (sigma_Born with a unit table, via
+  `TRadCor::CalculateBorn`), then checks the result through the real reader at
+  every cell centre. That check is not exact: the C++ inversion drops the
+  `-m_e^2 lambda_q` term of lambda, which reaches 1e-5 at Q2 = 0.4, y = 0.98.
+* `MODEL_TABLE_INTERP=log` writes `interpolation = "log"` into the table, so the
+  reader interpolates log(A) and the ratios Ac/A, Acc/A instead of the raw
+  values.
+
 ## The tiers
 
 They are ordered so that a failure in one invalidates the ones below it.
@@ -183,7 +211,8 @@ precision, even once H1 is fixed:
 
 * **H11** -- the C++ forms `sigma_B * exp(delta_inf) * (1 + delta_VR + delta_vac)`
   while the Fortran forces `delta_inf = 0` and uses `sigma_B * (1 + alpha/pi * delta)`.
-  Equivalent to O(alpha^2), but not digit-for-digit.
+  Equivalent to O(alpha^2), but not digit-for-digit. Measured (PLAN.md 2.3):
+  it moves sigma_obs / sigma_Born by 0.2-0.4% at the RG-E test points.
 * The Fortran `sig` already includes both tails; `haprad2_point` subtracts them
   so that `sig_obs` means the same thing on both sides.
 * `rc_point` defaults its missing-mass threshold to 0, disabling the gate in

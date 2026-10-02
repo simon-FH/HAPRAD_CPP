@@ -30,7 +30,7 @@ Bool_t SameBinning(const THnD* a, const THnD* b) {
 }  // namespace
 
 TSemiInclusiveModel::TSemiInclusiveModel()
-    : fPtReduced(false), fInterpolate(true), fNLookups(0), fNOutOfRange(0), fNEmptyCell(0), fNUnphysical(0) {
+    : fPtReduced(false), fInterpolate(true), fLogA(false), fNLookups(0), fNOutOfRange(0), fNEmptyCell(0), fNUnphysical(0) {
   for (Int_t i = 0; i < 4; ++i) fVar[i] = kQ2;
 }
 
@@ -43,6 +43,7 @@ void TSemiInclusiveModel::Clear() {
   fAcc.reset();
   fFitted.reset();
   fPtReduced = false;
+  fLogA = false;
 }
 
 void TSemiInclusiveModel::ResetCounters() const {
@@ -119,11 +120,24 @@ Bool_t TSemiInclusiveModel::Load(const char* path) {
     }
   }
 
+  Bool_t logA = false;
+  if (TNamed* s = file->Get<TNamed>("interpolation")) {
+    const TString v = s->GetTitle();
+    delete s;
+    if (v == "log")
+      logA = true;
+    else if (v != "linear") {
+      std::cerr << where << ": interpolation must be 'linear' or 'log', got '" << v << "'" << std::endl;
+      return false;
+    }
+  }
+
   fA = std::move(a);
   fAc = std::move(ac);
   fAcc = std::move(acc);
   fFitted = std::move(fitted);
   fPtReduced = reduced;
+  fLogA = logA;
   fPath = path;
   return true;
 }
@@ -209,19 +223,34 @@ void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Doub
     if (wc == 0.) continue;
     const Long64_t bin = fA->GetBin(idx);
     if (fFitted && fFitted->GetBinContent(bin) == 0.) continue;
-    sumW += wc;
-    sA += wc * fA->GetBinContent(bin);
-    sAc += wc * fAc->GetBinContent(bin);
-    sAcc += wc * fAcc->GetBinContent(bin);
+    const Double_t a = fA->GetBinContent(bin);
+    if (fLogA) {
+      if (!(a > 0.)) continue;
+      sumW += wc;
+      sA += wc * std::log(a);
+      sAc += wc * fAc->GetBinContent(bin) / a;
+      sAcc += wc * fAcc->GetBinContent(bin) / a;
+    } else {
+      sumW += wc;
+      sA += wc * a;
+      sAc += wc * fAc->GetBinContent(bin);
+      sAcc += wc * fAcc->GetBinContent(bin);
+    }
   }
   if (sumW <= 0.) {
     ++fNEmptyCell;
     return;
   }
 
-  A = sA / sumW;
-  Ac = sAc / sumW;
-  Acc = sAcc / sumW;
+  if (fLogA) {
+    A = std::exp(sA / sumW);
+    Ac = A * sAc / sumW;
+    Acc = A * sAcc / sumW;
+  } else {
+    A = sA / sumW;
+    Ac = sAc / sumW;
+    Acc = sAcc / sumW;
+  }
   if (fPtReduced) {
     Ac *= std::sqrt(pt2pos);
     Acc *= pt2pos;

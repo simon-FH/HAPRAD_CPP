@@ -150,6 +150,33 @@ void TRadCor::CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z,
   }
 }
 
+Double_t TRadCor::CalculateBorn(Double_t E, Double_t x, Double_t Q2, Double_t z, Double_t p_t, Double_t phi) {
+  delete fKin;
+  delete fInv;
+  delete fHadKin;
+  fKin = new TKinematicalVariables(x, -Q2, z, p_t, phi / kRadianDeg, E);
+  fInv = new TLorentzInvariants(fConfig, fKin);
+  fHadKin = new THadronKinematics(fConfig, fKin, fInv);
+
+  sigma_born = 0.;
+  sig_obs = 0.;
+  tai[0] = 0.;
+  tai[1] = 0.;
+  if (fSIModel) fSIModel->ResetCounters();
+  fKinError = false;
+  fParametersError = false;
+
+  try {
+    Initialization();
+    TBorn born(this);
+    sigma_born = N * born.Evaluate();
+  } catch (TKinematicException&) {
+    fKinError = true;
+    sigma_born = 0.;
+  }
+  return sigma_born;
+}
+
 Double_t TRadCor::GetRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z, Double_t p_t, Double_t phi, Double_t maxMx2,
                               Double_t targProp) {
   // Calculate and return the default radiative correction factor for the
