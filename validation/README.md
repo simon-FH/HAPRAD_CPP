@@ -78,6 +78,18 @@ MODEL_TABLE_INTERP=log ./table_convergence.py       # Tier 3 vs grid resolution
   reader interpolates log(A) and the ratios Ac/A, Acc/A instead of the raw
   values.
 
+### Producer closure (PLAN.md 2.2)
+
+```bash
+./closure_producer.py [n_events] [seed]
+```
+
+Toy pions in the RG-E ntuple format with a known azimuthal modulation
+(`bin/make_toy_events`) go through `MakePhiTable` fill and fit; the fitted
+modulation in each cell is compared with the truth as pulls. Expected: mean 0,
+width 1. Average a few seeds -- one seed's 187 cells only pin the mean to
++-0.07.
+
 ## The tiers
 
 They are ordered so that a failure in one invalidates the ones below it.

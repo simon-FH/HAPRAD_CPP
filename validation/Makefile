@@ -37,7 +37,7 @@ F2SRC      := ihaprad.f haprad_utils.f exclusive_model.f h3.f h4.f \
               pkhff.f init_pdf.f semi_inclusive_model.f
 F2OBJ      := $(addprefix $(OBJ)/,$(F2SRC:.f=.o))
 
-TARGETS    := $(BIN)/rc_point $(BIN)/phi_convention $(BIN)/make_toy_table $(BIN)/make_model_table
+TARGETS    := $(BIN)/rc_point $(BIN)/phi_convention $(BIN)/make_toy_table $(BIN)/make_model_table $(BIN)/make_toy_events
 ifdef CERN_LIB
 TARGETS    += $(BIN)/haprad2_point $(BIN)/born_harmonics
 endif
@@ -77,6 +77,9 @@ $(BIN)/rc_point: src/rc_point.cxx | $(BIN)
 
 $(BIN)/make_model_table: src/make_model_table.cxx | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(LIBS) -o $@
+
+$(BIN)/make_toy_events: src/make_toy_events.cxx | $(BIN)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(ROOTLIBS) -o $@
 
 $(BIN)/make_toy_table: src/make_toy_table.cxx | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(ROOTLIBS) -o $@

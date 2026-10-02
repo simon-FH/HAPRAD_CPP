@@ -201,6 +201,50 @@ on the cluster and choose the final grid from that, not from one run.
 **Done when:** a table from run 020026 loads in HAPRAD and Tier 3 runs (it won't
 *agree* yet — no acceptance, one run).
 
+**DONE, except acceptance and per-target vertex windows (both blocked
+externally).** `Utilities/bin/MakePhiTable`, configured by
+`Utilities/config/rge_pip.cfg`:
+
+```bash
+MakePhiTable fill config.cfg counts_job17.root <ntuple files or globs>   # per cluster job
+hadd counts.root counts_job*.root
+MakePhiTable fit  config.cfg counts.root table.root
+```
+
+* **What A is, settled in practice.** K = sigma_Born / A does not follow any
+  standard yield definition: scanning it, K goes roughly like 1/nu and 1/z with
+  a non-power Q2 dependence. So the table *defines* A by it:
+  `A = (fitted yield) x 2 M E nu / (cell volume) / K(cell centre)` -- the
+  measured cross section in HAPRAD's variables, divided by K. Then K's formula
+  cancels in the calculation. Tested: replacing line 99's `Sqrt(Q2 + y^2)` with
+  `|q|` moved the 2.3 convergence results by at most 0.03 percentage points.
+  This needs the conversion to use the real beam energy (2.3, Finding 2).
+* **Bin-averaged fit.** A counted phi bin integrates the distribution, so
+  fitting basis functions at bin centres attenuates the harmonics -- 1.1% for
+  cos(phi), 4.5% for cos(2 phi) with 12 bins. The original `phihist.cpp` did
+  this. The fit now uses bin-averaged basis functions.
+* Writes `pt_scaling = reduced`, `interpolation = log` and
+  `acceptance_corrected = no`; keeps fit errors, chi^2/ndf, event counts and the
+  raw yield harmonics per cell; sparse cells are recorded as unfitted.
+* **Merging is exact:** two fill jobs merged with `hadd` give a table identical
+  to a single pass (0 of 14,406 cell values differ).
+
+**On run 020026** (3.8 s to fill): 4,916,009 particles -> 275,737 pi+ after the
+DIS cuts (the same count `phi_convention` found independently) -> 243,390 after
+the vertex window and M_x > 1.5 GeV. On the full-dataset grid of the config
+(138,240 cells) one run fits 1,120 cells; on a coarse 5x5x5x5 grid, 176.
+
+With the coarse table loaded, **all five Tier 0 checks pass**, and the table
+coverage gives the first real measurement of H7: over the RG-E test points the
+tail integrals looked up structure functions **outside the table 4.9% of the
+time, and in an unfitted cell 12.5%**. The full dataset will fill empty cells;
+it will not reach outside the data's kinematic range.
+
+**Still to do here:** a normalisation closure -- events weighted by HAPRAD
+2.0's Born cross section through the producer, checking that the resulting
+table reproduces that cross section across cells. That tests the
+`2 M E nu / K` construction directly. It needs a weight branch in `fill`.
+
 ---
 
 ## Phase 2 — Closure tests (local, no data needed)
@@ -217,6 +261,9 @@ correction and the full dataset exist.
 2. **Producer closure.** Generate toy events in the `DT` format with a known
    azimuthal modulation, run `MakePhiTable`, recover the amplitudes within
    their fitted errors.
+   **DONE** (`validation/closure_producer.py`). 187 cells, six seeds: pulls of
+   Ac/A -0.031 +- 0.030 and Acc/A +0.025 +- 0.030, widths 0.93-1.05. Before the
+   bin-averaged fit the two had opposite-sign offsets of about 0.1.
 3. **A Tier 3 that can actually agree.** Write a Born-only FORTRAN driver
    (`conkin` + `bornin`; no tail integrals, so it is fast), use it to tabulate
    A/Ac/Acc *from HAPRAD 2.0's own PDF x FF model* on our grid, and feed that
@@ -296,10 +343,10 @@ modulation is not physical; real data will not have it.
    reconstructed effective energy? The evidence above says yes.
 2. `TStructFunctionArray.cxx:99`: `N = Q^4 * Sqrt(tldQ2 + SQ(tldY)) / SQ(tldY)`
    adds Q^2 (GeV^2) to y^2 (dimensionless). Line 61 already computes
-   `tld_sq = Sqrt(tldQ2 + SQ(tldNu)) = |q|`; was `tldNu` meant? This cannot show
-   up in a model-derived table, which is self-consistent by construction, but
-   it decides what the producer must store as A for real data -- i.e. exactly
-   what normalisation of the measured yield the inversion assumes.
+   `tld_sq = Sqrt(tldQ2 + SQ(tldNu)) = |q|`; was `tldNu` meant? *No longer
+   blocking:* Phase 1 defines A so that this formula cancels, and swapping it
+   for `|q|` was tested to make no difference. Still worth an answer, since the
+   code should say what it means.
 
 **Resolution guidance, from the converging runs:** with log interpolation,
 ~24 bins in p_t^2 and ~18 x 16 x 20 in (Q2, nu, z) the table contributes below
