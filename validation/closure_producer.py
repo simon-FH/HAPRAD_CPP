@@ -92,7 +92,8 @@ void closure(const char* toy, const char* table) {
 def main():
     nev = sys.argv[1] if len(sys.argv) > 1 else "2000000"
     seed = sys.argv[2] if len(sys.argv) > 2 else "12345"
-    tmp = tempfile.mkdtemp(prefix="closure_")
+    tmpdir = tempfile.TemporaryDirectory(prefix="closure_")  # removed when main() returns
+    tmp = tmpdir.name
     cfg, toy = os.path.join(tmp, "toy.cfg"), os.path.join(tmp, "toy.root")
     counts, table = os.path.join(tmp, "counts.root"), os.path.join(tmp, "table.root")
     with open(cfg, "w") as f:

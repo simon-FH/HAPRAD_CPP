@@ -2,6 +2,7 @@
 #include "TExclusiveModel.h"
 #include <iostream>
 #include <fstream>
+#include <stdexcept>
 #include "TMath.h"
 
 void ExclusiveModel(Double_t q2m, Double_t wm, Double_t csthcm, Double_t& st, Double_t& sl, Double_t& stt, Double_t& stl, Double_t& stlp) {
@@ -75,8 +76,15 @@ void ExclusiveModel(Double_t q2m, Double_t wm, Double_t csthcm, Double_t& st, Do
 
   static Int_t nc = 0;
   if (nc == 0) {
+    // The MAID grid is read from the WORKING DIRECTORY. It used to be read
+    // unchecked: without the file the arrays stayed zero and the exclusive
+    // radiative tail came out as exactly 0, silently.
     std::ifstream in;
     in.open("pi_n_maid.dat");
+    if (!in)
+      throw std::runtime_error(
+          "TExclusiveModel: cannot open pi_n_maid.dat in the working directory; "
+          "the exclusive radiative tail needs it (a copy is in haprad2/)");
 
     for (Int_t k = 0; k < nq; k++)
       for (Int_t j = 0; j < nw; j++)
@@ -84,6 +92,7 @@ void ExclusiveModel(Double_t q2m, Double_t wm, Double_t csthcm, Double_t& st, Do
           in >> ft_cs[nq * nw * i + nq * j + k] >> fl_cs[nq * nw * i + nq * j + k] >> ftt_cs[nq * nw * i + nq * j + k] >>
               ftl_cs[nq * nw * i + nq * j + k] >> ftlp_cs[nq * nw * i + nq * j + k];
         }
+    if (in.fail()) throw std::runtime_error("TExclusiveModel: pi_n_maid.dat is truncated or malformed");
     in.close();
 
     for (Int_t i = 0; i < nq; i++) rarg[i] = q2_pn[i];

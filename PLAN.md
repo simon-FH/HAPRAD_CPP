@@ -424,6 +424,68 @@ data for the equation fits.
 **Done when:** weights exist for run 020026 and the interpolation error is
 quantified.
 
+**DONE** (`Utilities/`: `MakeRCGrid`, `ApplyRC`, `run_rc_grid.sh`,
+`check_rc_grid.py`; config keys `rc_nodes_*`, `target_naz`,
+`rc_exclusive_tail`). The config, cuts and event reading are shared with
+`MakePhiTable` through `include/RGESelection.hxx`; MakePhiTable's output on run
+020026 is byte-identical after the move.
+
+* **Grid variables: (Q2, nu, z, p_t, phi), phi on 0-180 deg.** p_t rather than
+  pt2: the RC factor's phi modulation grows like p_t (at p_t = 1 MeV it has
+  vanished; at p_t = 0 exactly the C++ returns sigma_Born = 0, so that node is
+  evaluated at 1 MeV). phi -> 360 - phi symmetry was checked in Tier 0.
+* **The parts are stored separately** (Born x virtual/soft, inelastic tail,
+  exclusive tail, each over sigma_Born) and combined when the weights are
+  made. The exclusive tail is left out by default and refused for a table in
+  arbitrary units (Phase 1).
+* **Grid of 9 x 8 x 9 x 11 x 13 = 92,664 nodes** (steps 1 GeV^2, 1 GeV, 0.1,
+  0.125 GeV, 15 deg): 30 minutes on 14 cores, with the model-derived table on
+  the config grid. 46,500 nodes valid; 19,500 unphysical; 26,585 physical but
+  rejected by HAPRAD, of which 26,572 lie below its M_x^2 gate (the pi+ n
+  threshold) -- correctly excluded, there is no semi-inclusive cross section
+  there.
+
+**Interpolation error budget** (`check_rc_grid.py`, 2,000 selected events of run
+020026, HAPRAD called directly at each one):
+
+| events | n | mean | median abs | 68% abs | 95% abs | max abs |
+|---|---|---|---|---|---|---|
+| full grid support | 1856 | -0.10% | 0.37% | 0.61% | 1.9% | 6.2% |
+| partial support (corners below the gate) | 144 | -1.7% | 0.8% | 1.5% | 6.0% | 32% |
+
+By variable, the mean error stays within +-0.3% except at the highest p_t
+(-1.3%) and the lowest nu (-0.7%). Partial support happens near the
+kinematic boundary, at low z and large p_t where the hadron goes sideways in
+the photon frame: there the RC factor itself is 1.2-2.2 and changes fast.
+
+**Weights for run 020026** (`ApplyRC`, 7 s for the run): of 243,390 selected
+pi+, 226,619 (93.1%) have full grid support, 16,688 (6.9%) partial, 83 fall
+outside the grid. Mean RC factor 0.97 (1%-99%: 0.86-1.19); the weights change
+the phi distribution by +-3%, raising phi ~ 0 relative to 180 -- removing a
+radiatively generated cos(phi). Low z (< 0.25) and high pt2 (> 0.6): mean RC 1.18.
+These use the model-derived table and carry Phase 2.3's open ~2% tail bias
+(Finding 2), so they demonstrate the chain, not final numbers.
+
+**Next, for production:**
+1. **Refine where the budget says**: p_t first, then nu. Doubling the p_t
+   nodes doubles the cost (an hour here, minutes on the cluster). Target: mean
+   error per analysis region below ~0.3%.
+2. **Partial-support events (7%)**: either cut on `rc_cover`, add nodes near
+   the boundary, or call HAPRAD directly for them (~2 CPU-hours per run).
+   A choice for the analysis.
+
+Found along the way:
+* **The MAID file was read unchecked** (`TExclusiveModel.cxx`): run from a
+  directory without `pi_n_maid.dat`, the exclusive tail was exactly 0 with no
+  message. It now throws a clear error. Error handling only -- full `rc_point`
+  output at four points is bit-identical with the file present. No script in
+  this repository copies the file, so EG2-era "with exclusive tail" factors may
+  have been computed without it; worth checking against the old outputs.
+* **GSL prints hundreds of "failed to reach tolerance" warnings per HAPRAD
+  call** (inner R integrals), also at the test points that converge in Tier 3.
+  `MakeRCGrid` counts them per node (`integrator_warnings`) instead of printing
+  them -- over a grid they would run to gigabytes.
+
 ---
 
 ## Phase 4 — The iteration loop
