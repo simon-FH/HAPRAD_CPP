@@ -37,10 +37,16 @@ F2SRC      := ihaprad.f haprad_utils.f exclusive_model.f h3.f h4.f \
               pkhff.f init_pdf.f semi_inclusive_model.f
 F2OBJ      := $(addprefix $(OBJ)/,$(F2SRC:.f=.o))
 
-TARGETS    := $(BIN)/rc_point $(BIN)/phi_convention $(BIN)/make_toy_table
+TARGETS    := $(BIN)/rc_point $(BIN)/phi_convention $(BIN)/make_toy_table $(BIN)/make_model_table
 ifdef CERN_LIB
-TARGETS    += $(BIN)/haprad2_point
+TARGETS    += $(BIN)/haprad2_point $(BIN)/born_harmonics
 endif
+
+# For tabulating HAPRAD 2.0's model (PLAN.md 2.3): the same objects, but with
+# the unconditional `stop` at semi_inclusive_model.f:178 removed, so the cap
+# the authors wrote immediately after it takes effect instead of aborting the
+# run. The reference used by haprad2_point is not touched.
+F2TABOBJ   := $(filter-out $(OBJ)/semi_inclusive_model.o,$(F2OBJ)) $(OBJ)/semi_inclusive_model_nostop.o
 
 # Both codes open their data files from the current working directory:
 # pi_n_maid.dat (MAID exclusive model) and the *.grid PKH fragmentation
@@ -69,6 +75,9 @@ $(BIN) $(OBJ):
 $(BIN)/rc_point: src/rc_point.cxx | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(LIBS) -o $@
 
+$(BIN)/make_model_table: src/make_model_table.cxx | $(BIN)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(LIBS) -o $@
+
 $(BIN)/make_toy_table: src/make_toy_table.cxx | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(ROOTLIBS) -o $@
 
@@ -77,6 +86,16 @@ $(BIN)/phi_convention: src/phi_convention.cxx | $(BIN)
 
 $(OBJ)/%.o: $(HAPRAD2)/%.f | $(OBJ)
 	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ)/semi_inclusive_model_nostop.o: $(HAPRAD2)/semi_inclusive_model.f | $(OBJ)
+	sed 's/^      if (abs(4.d0 \* m_cos_phi) .gt. 0.9d0) stop$$/C     stop removed for tabulation; the cap below applies/' \
+	    $< > $(OBJ)/semi_inclusive_model_nostop.f
+	@if grep -qE '^ +if .* stop *$$' $(OBJ)/semi_inclusive_model_nostop.f; then \
+	    echo "ERROR: the stop in semi_inclusive_model.f was not removed"; exit 1; fi
+	$(FC) $(FFLAGS) -c $(OBJ)/semi_inclusive_model_nostop.f -o $@
+
+$(BIN)/born_harmonics: src/born_harmonics.f $(F2TABOBJ) | $(BIN)
+	$(FC) $(FFLAGS) $^ -L$(CERN_LIB) -Wl,-rpath,$(CERN_LIB) -lpdflib804 -o $@
 
 $(BIN)/haprad2_point: src/haprad2_point.f $(F2OBJ) | $(BIN)
 	$(FC) $(FFLAGS) $^ -L$(CERN_LIB) -Wl,-rpath,$(CERN_LIB) -lpdflib804 -o $@

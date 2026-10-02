@@ -222,8 +222,88 @@ correction and the full dataset exist.
    A/Ac/Acc *from HAPRAD 2.0's own PDF x FF model* on our grid, and feed that
    table to the C++. Same model both sides, so Tier 3 compares like with like.
    Expect agreement at the level of the table's discretisation, with a floor
-   near 1e-3 from H11.
+   from H11 (measured below at 0.2-0.4%).
 4. Add all three to `validation/compare.py`.
+
+**Step 1: done in 0.2.** With a reduced toy table all five Tier 0 checks pass.
+
+**Step 3: done, with three findings -- one of which needs a decision.**
+
+Tools (`validation/README.md`): `born_harmonics`, HAPRAD 2.0's Born alone,
+matching the full calculation to 6e-13; `make_model_table`, which turns its
+harmonics into a table using the C++'s own kinematic factor and checks it at
+every cell centre (agreement to <=1e-5, set by the inversion dropping the
+`-m_e^2 lambda_q` term of lambda); `table_convergence.py`, Tier 3 against grid
+resolution; and `TRadCor::CalculateBorn`, sigma_Born without the tails,
+bit-identical to the full calculation's.
+
+*Finding 1 -- interpolate log(A), not A.* A carries a steep, roughly 1/Q^4,
+cross-section-like dependence. Interpolated linearly, sigma_Born at off-centre
+points was off by up to 53% on practical grids; refining Q2 helped most,
+refining p_t^2 alone not at all. The reader now accepts
+`interpolation = "log"`: log(A) and the ratios Ac/A, Acc/A, which are smooth.
+That cut the base-grid error from 53% to 14%, and to 0.7% on finer grids.
+**The producer should write log tables.**
+
+*Finding 2 -- the tail carries a ~2% bias that refinement cannot remove.* With
+the same physics on both sides, the RC factor converged to 2.2-2.5% and stayed
+there. Splitting f1 = sigma_obs/sigma_Born + tail/sigma_Born:
+
+```
+x=0.234 Q2=2.5 z=0.34 phi=60    delta part -0.37%   tail part -1.25%
+x=0.234 Q2=2.5 z=0.34 phi=180   delta part -0.34%   tail part -1.94%
+x=0.3   Q2=4   z=0.5  phi=30    delta part -0.42%   tail part -0.72%
+x=0.234 Q2=2.5 z=0.7  phi=60    delta part -0.30%   tail part -0.58%
+```
+
+The delta part is H11 and does not depend on the table. The tail part has the
+same sign at every point. The cause is `TStructFunctionArray.cxx:79-82`: at
+shifted kinematics the yield-to-structure-function inversion does not use the
+beam energy E but reconstructs an "effective" one,
+
+```cpp
+Double_t a = S/(2M) * (S/(2M) - nu_Born) * tldQ2 / Q2;    // depends on the Born point
+Double_t tldE = 0.5 * (tldNu + Sqrt(SQ(tldNu) + 4 * a));
+```
+
+so one table cell yields different structure functions depending on which Born
+point is asking. At Born kinematics it reduces to E exactly, which is why every
+Born-level check passed. Line 93 of the same expression (`tldXg`) uses the real
+E. In a scratch copy with `tldE = E`, the tail part falls to +0.04%, -0.19%,
++0.03%, -0.17% and the RC factor converges with refinement to 0.6% -- close to
+the H11 floor -- instead of levelling off at 2.2-2.5%:
+
+```
+grid (Q2 x nu x z x pt2)   f1 error, current   f1 error, tldE = E
+ 9x 8x10x24                    2.59%               0.58%
+18x16x20x24                    2.29%               0.95%
+27x24x30x36 (wider)            2.49%               0.60%
+```
+
+**This is a change to the core calculation, so it is not made.** It needs a
+decision -- ideally from the port's author, together with the next point.
+
+*Finding 3 -- one test point exposes the reference model, not the C++.* At
+x = 0.15, Q2 = 2, z = 0.3 the FORTRAN's cos(2 phi) term sits exactly on the
+authors' cap: `2 Bcc/B0 = 0.9000`, as `h4.f` runs away at low x. Under the cap
+H4 goes like 1/p_t^2 and depends on y, so it is not a function of the table
+variables and no table can follow it -- its error is large on a coarse p_t^2
+grid (20% in sigma_Born) and only shrinks with refinement. A 45% cos(2 phi)
+modulation is not physical; real data will not have it.
+
+**Questions for the port's author:**
+1. Should the inversion use the beam energy E (`tldE = E`) rather than the
+   reconstructed effective energy? The evidence above says yes.
+2. `TStructFunctionArray.cxx:99`: `N = Q^4 * Sqrt(tldQ2 + SQ(tldY)) / SQ(tldY)`
+   adds Q^2 (GeV^2) to y^2 (dimensionless). Line 61 already computes
+   `tld_sq = Sqrt(tldQ2 + SQ(tldNu)) = |q|`; was `tldNu` meant? This cannot show
+   up in a model-derived table, which is self-consistent by construction, but
+   it decides what the producer must store as A for real data -- i.e. exactly
+   what normalisation of the measured yield the inversion assumes.
+
+**Resolution guidance, from the converging runs:** with log interpolation,
+~24 bins in p_t^2 and ~18 x 16 x 20 in (Q2, nu, z) the table contributes below
+1% to the RC factor once Finding 2 is resolved.
 
 **Done when:** all five Tier 0 checks pass with no SKIPs, and Tier 3 agrees with
 HAPRAD 2.0 on the model-derived table.
