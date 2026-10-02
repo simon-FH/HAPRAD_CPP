@@ -53,6 +53,39 @@ a conversion is needed.
 
 **Done when:** V1 agrees to rounding on run 020026.
 
+**DONE.** `validation/bin/phi_convention`, over 268,258 pi+ from run 020026:
+
+```
+hypothesis                   median          95%     frac < 1e-4
+phi_h = phi_PQ            2.845e-06    1.215e-05         1.0000
+phi_h = phi_PQ + pi       7.085e-01    4.223e+00         0.0001
+```
+
+The conventions agree; the residual is the ntuple's float storage. The test has
+plenty of leverage -- shifting phi by pi moves V1 by 71% at the median -- so a
+mismatch could not have hidden.
+
+**Found along the way: the analysis needs a missing-mass cut.** 6,641 events
+(2.4%) pass the DIS cuts but HAPRAD rejects them, *all* because
+`p_x^2 < (M_p + m_pi)^2`. An independent M_x calculation from the ntuple flags
+exactly the same 6,641. They form the exclusive peak at M_x ~ 0.94 GeV
+(e p -> e' pi+ n) with its smeared tail, at mean z = 0.555. HAPRAD is right to
+refuse them -- the semi-inclusive RC does not apply below the two-body threshold
+-- and the analysis should cut them anyway. The same cut also disposes of the
+838 backward-going pions (0.30%), which HAPRAD's p_t input would otherwise
+silently treat as forward:
+
+```
+M_x > 1.2 GeV : keeps 96.1%, backward left 3
+M_x > 1.4 GeV : keeps 93.1%, backward left 0
+M_x > 1.5 GeV : keeps 91.0%, backward left 0
+M_x > 1.6 GeV : keeps 88.2%, backward left 0
+```
+
+The exact value (1.4-1.6 GeV is typical, to clear the resonance region too) is
+an analysis decision. Whatever it is, the producer and the RC grid must use the
+same one, since it defines what "semi-inclusive" means for the exclusive tail.
+
 ### 0.2 Rework the consumer (`TSemiInclusiveModel`)
 
 * **Read the binning from the file**, not from hardcoded `THnD` axes. The
@@ -91,7 +124,9 @@ acceptance in different variables. The consumer converts trivially:
 `MakePhiTable`: RG-E ntuples -> `newphihist.root`. Starting point is
 `git show b303487^:PhiHist/phihist.cpp`, deleted from this repo in `b303487`.
 
-1. **Read the `DT` ntuples** — pi+, DIS cuts, vertex window. Takes a file list,
+1. **Read the `DT` ntuples** — pi+, DIS cuts, vertex window, and a
+   **missing-mass cut** (see 0.1 — without it 2.4% of events are exclusive
+   and HAPRAD refuses them). Takes a file list,
    writes one small ROOT file. Built to run unchanged on the cluster.
 2. **Binning from a config file**, never compiled in.
 3. **Acceptance as a pluggable input** reading the `acc_corr` format. v0 runs

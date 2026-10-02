@@ -28,6 +28,10 @@ can be diffed directly:
 Run them from `data/`, which holds symlinks to the inputs both codes open by
 relative path (`pi_n_maid.dat`, the `*.grid` fragmentation functions).
 
+`bin/phi_convention "<file glob>"` checks that RG-E's `phi_PQ` is the `phi_h`
+HAPRAD expects, by comparing `V1 = 2 k1.p_h` from the four-vectors against
+`THadronKinematics::V1()`. It also classifies every event HAPRAD rejects.
+
 ## The tiers
 
 They are ordered so that a failure in one invalidates the ones below it.

@@ -37,7 +37,7 @@ F2SRC      := ihaprad.f haprad_utils.f exclusive_model.f h3.f h4.f \
               pkhff.f init_pdf.f semi_inclusive_model.f
 F2OBJ      := $(addprefix $(OBJ)/,$(F2SRC:.f=.o))
 
-TARGETS    := $(BIN)/rc_point
+TARGETS    := $(BIN)/rc_point $(BIN)/phi_convention
 ifdef CERN_LIB
 TARGETS    += $(BIN)/haprad2_point
 endif
@@ -67,6 +67,9 @@ $(BIN) $(OBJ):
 	@mkdir -p $@
 
 $(BIN)/rc_point: src/rc_point.cxx | $(BIN)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(LIBS) -o $@
+
+$(BIN)/phi_convention: src/phi_convention.cxx | $(BIN)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $< $(LIBS) -o $@
 
 $(OBJ)/%.o: $(HAPRAD2)/%.f | $(OBJ)
