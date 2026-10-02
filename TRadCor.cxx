@@ -3,6 +3,7 @@
 #include "TKinematicalVariables.h"
 #include "TLorentzInvariants.h"
 #include "THadronKinematics.h"
+#include "TSemiInclusiveModel.h"
 #include "TDelta.h"
 #include "TBorn.h"
 #include "TQQTPhi.h"
@@ -16,7 +17,7 @@
 #include <iostream>
 #include <iomanip>
 
-TRadCor::TRadCor() : fKin(0), fInv(0), fHadKin(0), sigma_born(0.), sig_obs(0.) {
+TRadCor::TRadCor() : fKin(0), fInv(0), fHadKin(0), fSIModel(0), sigma_born(0.), sig_obs(0.) {
   // Default constructor
 
   fConfig = new THapradConfig();
@@ -28,7 +29,13 @@ TRadCor::~TRadCor() {
   delete fKin;
   delete fInv;
   delete fHadKin;
+  delete fSIModel;
   delete fConfig;
+}
+
+Bool_t TRadCor::LoadSemiInclusiveTable(const char* path) {
+  if (!fSIModel) fSIModel = new TSemiInclusiveModel();
+  return fSIModel->Load(path);
 }
 
 void TRadCor::RegisteredLepton(Int_t type) {
@@ -109,6 +116,7 @@ void TRadCor::CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z,
   sig_obs = 0.;
   tai[0] = 0.;
   tai[1] = 0.;
+  if (fSIModel) fSIModel->ResetCounters();
 
   fKinError = false;
   fParametersError = false;

@@ -1,122 +1,229 @@
 #include "TSemiInclusiveModel.h"
-#include "TMath.h"
-#include "Partons.h"
-#include "ConfigFile.h"
 #include "haprad_constants.h"
 #include "square_power.h"
+
+#include "TAxis.h"
+#include "TFile.h"
+#include "THn.h"
+#include "TMath.h"
+#include "TNamed.h"
+
+#include <cmath>
 #include <iostream>
 
-#include "TSystem.h"
-#include "TROOT.h"
-#include "TFile.h"
-#include "TNtuple.h"
-#include "THn.h"
+namespace {
 
-namespace HapradUtils {
+Bool_t SameAxis(const TAxis* a, const TAxis* b) {
+  if (a->GetNbins() != b->GetNbins()) return false;
+  for (Int_t i = 1; i <= a->GetNbins() + 1; ++i)
+    if (a->GetBinLowEdge(i) != b->GetBinLowEdge(i)) return false;
+  return true;
+}
 
-void SemiInclusiveModel(Double_t q2, Double_t X, Double_t Y, Double_t Z, Double_t pt2, Double_t mx2, Double_t pl, Double_t& A, Double_t& Ac,
-                        Double_t& Acc) {
-  using namespace TMath;
+Bool_t SameBinning(const THnD* a, const THnD* b) {
+  if (a->GetNdimensions() != b->GetNdimensions()) return false;
+  for (Int_t d = 0; d < a->GetNdimensions(); ++d)
+    if (!SameAxis(a->GetAxis(d), b->GetAxis(d))) return false;
+  return true;
+}
 
-  Int_t bins[4] = {6, 5, 10, 5};
-  Double_t xmins[4] = {1., 0.1, 0., 0.};
-  Double_t xmaxs[4] = {4., 0.55, 1., 1.};
-  static THnD H12Hist("h12_hist", "H1+H2 histo", 4, bins, xmins, xmaxs);
-  static THnD H3Hist("h3_hist", "H3 histo", 4, bins, xmins, xmaxs);
-  static THnD H4Hist("h4_hist", "H4 histo", 4, bins, xmins, xmaxs);
-  Double_t values[4];
+}  // namespace
 
-  static bool initialized;
+TSemiInclusiveModel::TSemiInclusiveModel()
+    : fPtReduced(false), fInterpolate(true), fNLookups(0), fNOutOfRange(0), fNEmptyCell(0), fNUnphysical(0) {
+  for (Int_t i = 0; i < 4; ++i) fVar[i] = kQ2;
+}
 
-  // Every early return below (bad kinematics, missing file, below threshold)
-  // used to leave these untouched, i.e. as whatever the caller's stack held.
-  // Same defect, and same fix, as strf()'s sfm(i) = 0 in ihaprad.f.
+TSemiInclusiveModel::~TSemiInclusiveModel() {}
+
+void TSemiInclusiveModel::Clear() {
+  fPath.clear();
+  fA.reset();
+  fAc.reset();
+  fAcc.reset();
+  fFitted.reset();
+  fPtReduced = false;
+}
+
+void TSemiInclusiveModel::ResetCounters() const {
+  fNLookups = 0;
+  fNOutOfRange = 0;
+  fNEmptyCell = 0;
+  fNUnphysical = 0;
+}
+
+Bool_t TSemiInclusiveModel::Load(const char* path) {
+  Clear();
+  ResetCounters();
+
+  const char* where = "TSemiInclusiveModel::Load";
+  std::unique_ptr<TFile> file(TFile::Open(path, "READ"));
+  if (!file || file->IsZombie()) {
+    std::cerr << where << ": cannot open '" << path << "'" << std::endl;
+    return false;
+  }
+
+  std::unique_ptr<THnD> a(file->Get<THnD>("A"));
+  std::unique_ptr<THnD> ac(file->Get<THnD>("Ac"));
+  std::unique_ptr<THnD> acc(file->Get<THnD>("Acc"));
+  if (!a || !ac || !acc) {
+    std::cerr << where << ": '" << path << "' must hold THnD objects named A, Ac and Acc" << std::endl;
+    return false;
+  }
+  if (a->GetNdimensions() != 4) {
+    std::cerr << where << ": tables must be 4-dimensional, got " << a->GetNdimensions() << std::endl;
+    return false;
+  }
+  if (!SameBinning(a.get(), ac.get()) || !SameBinning(a.get(), acc.get())) {
+    std::cerr << where << ": A, Ac and Acc do not share the same binning" << std::endl;
+    return false;
+  }
+
+  std::unique_ptr<THnD> fitted(file->Get<THnD>("fitted"));
+  if (fitted && !SameBinning(a.get(), fitted.get())) {
+    std::cerr << where << ": 'fitted' does not share the binning of A" << std::endl;
+    return false;
+  }
+
+  // Each axis name says which kinematic variable it is.
+  for (Int_t d = 0; d < 4; ++d) {
+    const TString n = a->GetAxis(d)->GetName();
+    if (n == "Q2")
+      fVar[d] = kQ2;
+    else if (n == "x" || n == "xB" || n == "Xb")
+      fVar[d] = kX;
+    else if (n == "nu")
+      fVar[d] = kNu;
+    else if (n == "z" || n == "zh" || n == "Zh")
+      fVar[d] = kZ;
+    else if (n == "pt" || n == "Pt")
+      fVar[d] = kPt;
+    else if (n == "pt2" || n == "Pt2" || n == "p_T2")
+      fVar[d] = kPt2;
+    else {
+      std::cerr << where << ": axis " << d << " is named '" << n << "', which is not a known variable"
+                << " (Q2, x, nu, z, pt, pt2)" << std::endl;
+      return false;
+    }
+  }
+
+  Bool_t reduced = false;
+  if (TNamed* s = file->Get<TNamed>("pt_scaling")) {
+    const TString v = s->GetTitle();
+    delete s;
+    if (v == "reduced")
+      reduced = true;
+    else if (v != "raw") {
+      std::cerr << where << ": pt_scaling must be 'raw' or 'reduced', got '" << v << "'" << std::endl;
+      return false;
+    }
+  }
+
+  fA = std::move(a);
+  fAc = std::move(ac);
+  fAcc = std::move(acc);
+  fFitted = std::move(fitted);
+  fPtReduced = reduced;
+  fPath = path;
+  return true;
+}
+
+void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Double_t Z, Double_t pt2, Double_t mx2,
+                                   Double_t /*pl*/, Double_t& A, Double_t& Ac, Double_t& Acc) const {
+  // Every early return leaves the amplitudes at zero, never at whatever the
+  // caller's stack held -- the same convention as strf() in ihaprad.f.
   A = 0.;
   Ac = 0.;
   Acc = 0.;
+  if (!fA) return;
 
-  gSystem->Load("libTree");
+  ++fNLookups;
 
-  if (!initialized) {
-    initialized = true;
-    TFile file("newphihist.root");
-    TNtuple* tuple = (TNtuple*)file.Get("AAcAcc_data");
-    // Neither the open nor the Get was checked: a missing or unexpected file
-    // dereferenced a null pointer on the next line.
-    if (file.IsZombie() || tuple == 0) {
-      std::cerr << "TSemiInclusiveModel: cannot read 'AAcAcc_data' from "
-                << "newphihist.root; semi-inclusive structure functions "
-                << "unavailable." << std::endl;
-      return;
+  if (X <= 0 || X > 1 || Z < 0 || Z > 1 || mx2 < SQ(kMassProton + kMassPion)) {
+    ++fNUnphysical;
+    return;
+  }
+
+  const Double_t pt2pos = TMath::Max(0., pt2);
+
+  // For each axis: the two neighbouring cells to interpolate between, and the
+  // weight of the upper one.
+  Int_t lo[4], hi[4];
+  Double_t w[4];
+  Bool_t outside = false;
+  for (Int_t d = 0; d < 4; ++d) {
+    Double_t v = 0.;
+    switch (fVar[d]) {
+      case kQ2: v = q2; break;
+      case kX: v = X; break;
+      case kNu: v = q2 / (2. * kMassProton * X); break;
+      case kZ: v = Z; break;
+      case kPt: v = std::sqrt(pt2pos); break;
+      case kPt2: v = pt2pos; break;
     }
-    Float_t rXb, rQ2, rZh, rPt, rA, rAc, rAcc;
-    tuple->SetBranchAddress("Q2", &rQ2);
-    tuple->SetBranchAddress("Xb", &rXb);
-    tuple->SetBranchAddress("Zh", &rZh);
-    tuple->SetBranchAddress("Pt", &rPt);
-    tuple->SetBranchAddress("A", &rA);
-    tuple->SetBranchAddress("Ac", &rAc);
-    tuple->SetBranchAddress("Acc", &rAcc);
-    for (int i = 0; i < tuple->GetEntries(); i++) {
-      tuple->GetEntry(i);
-      values[0] = rQ2;
-      values[1] = rXb;
-      values[2] = rZh;
-      values[3] = rPt;
-      H12Hist.Fill(values, rA);
-      H3Hist.Fill(values, rAc);
-      H4Hist.Fill(values, rAcc);
+    const TAxis* ax = fA->GetAxis(d);
+    const Int_t n = ax->GetNbins();
+    if (v < ax->GetXmin() || v >= ax->GetXmax()) outside = true;
+
+    Int_t b = ax->FindFixBin(v);
+    if (b < 1) b = 1;
+    if (b > n) b = n;
+
+    if (!fInterpolate) {
+      lo[d] = hi[d] = b;
+      w[d] = 0.;
+      continue;
+    }
+    // Neighbours by cell centre; constant beyond the outermost centres.
+    Int_t b1 = (v < ax->GetBinCenter(b)) ? b - 1 : b;
+    Int_t b2 = b1 + 1;
+    if (b1 < 1) {
+      lo[d] = hi[d] = 1;
+      w[d] = 0.;
+    } else if (b2 > n) {
+      lo[d] = hi[d] = n;
+      w[d] = 0.;
+    } else {
+      const Double_t c1 = ax->GetBinCenter(b1), c2 = ax->GetBinCenter(b2);
+      lo[d] = b1;
+      hi[d] = b2;
+      w[d] = (v - c1) / (c2 - c1);
     }
   }
+  if (outside) ++fNOutOfRange;
 
-  /*Check the kinematics*/
-  if (X < 0 || X > 1) return;
-  if (Z < 0 || Z > 1) return;
-
-  // Double_t r  = Sqrt(1. + SQ(2 * kMassProton * X) / q2);
-
-  if (mx2 < SQ(kMassProton + kMassPion)) return;
-
-  Double_t bin[4];
-  bin[0] = q2;
-  bin[1] = X;
-  bin[2] = Z;
-  bin[3] = sqrt(pt2);
-
-  for (Int_t i = 0; i < 4; i++) {
-    if (bin[i] > xmaxs[i]) bin[i] = xmaxs[i] - 0.001;
-    if (bin[i] < xmins[i]) bin[i] = xmins[i] + 0.001;
+  // Sum over the 2^4 corners, dropping unfitted ones and renormalising.
+  Double_t sumW = 0., sA = 0., sAc = 0., sAcc = 0.;
+  Int_t idx[4];
+  for (Int_t corner = 0; corner < 16; ++corner) {
+    Double_t wc = 1.;
+    for (Int_t d = 0; d < 4; ++d) {
+      const Bool_t up = (corner >> d) & 1;
+      if (up && hi[d] == lo[d]) {
+        wc = 0.;
+        break;
+      }
+      idx[d] = up ? hi[d] : lo[d];
+      wc *= up ? w[d] : 1. - w[d];
+    }
+    if (wc == 0.) continue;
+    const Long64_t bin = fA->GetBin(idx);
+    if (fFitted && fFitted->GetBinContent(bin) == 0.) continue;
+    sumW += wc;
+    sA += wc * fA->GetBinContent(bin);
+    sAc += wc * fAc->GetBinContent(bin);
+    sAcc += wc * fAcc->GetBinContent(bin);
+  }
+  if (sumW <= 0.) {
+    ++fNEmptyCell;
+    return;
   }
 
-  //    std::cout << "Vals: " <<  q2 << " " << X << " " << X << " " << H3Hist.GetBinContent(H4Hist.GetBin(bin)) << std::endl;
-  //    std::cout << q2 << " " << X << " " << X << " " << H4Hist.GetBinContent(H4Hist.GetBin(bin))  << std::endl;
-
-  A = H12Hist.GetBinContent(H12Hist.GetBin(bin));
-  Ac = H3Hist.GetBinContent(H3Hist.GetBin(bin));
-  Acc = H4Hist.GetBinContent(H4Hist.GetBin(bin));
-
-  /*CHECK LATER
-  // Check that cos(phi) and cos(2phi) are less than 1
-  Double_t Ebeam, rt, rtz, cterm, m_cos_phi, m_cos_2phi;
-  Ebeam   = q2 / (2 * kMassProton * X * Y);
-  rt      = 1 - Y - kMassProton * X * Y / (2 * Ebeam);
-  rtz     = Sqrt(rt / (1 + 2 * kMassProton * X / (Y * Ebeam)));
-  cterm   = X * SQ(Y) * H1 + rt * H2;
-
-  m_cos_phi = Sqrt(pt2 / q2) * (2 - Y) * rtz * H3m / (2 * cterm);
-
-  if (Abs(4. * m_cos_phi) > 0.9) {
-      H3m = 0.9 * Sign(1., m_cos_phi) * (2 * cterm) /
-              (Sqrt(pt2 / q2) * (2 - Y) * rtz) / 4.;
+  A = sA / sumW;
+  Ac = sAc / sumW;
+  Acc = sAcc / sumW;
+  if (fPtReduced) {
+    Ac *= std::sqrt(pt2pos);
+    Acc *= pt2pos;
   }
-
-  m_cos_2phi = pt2 / q2 * SQ(rtz) * H4m / (2 * cterm);
-
-  if (Abs(4 * m_cos_2phi) > 0.9)
-      H4m = 0.9 * Sign(1., m_cos_2phi) * (2 * cterm) / (pt2 / q2 * SQ(rtz)) / 4.;
-  */
-
-  return;
 }
-
-}  // End namespace HapradUtils

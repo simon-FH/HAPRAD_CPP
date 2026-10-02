@@ -62,12 +62,20 @@ EXC_TOL = 1e-3    # exclusive tail: same model and same integrand both sides
 RES_TOL = 5e-2    # cross sections: see H11
 
 
+# Structure-function table handed to the C++ via HAPRAD_SI_TABLE (--table).
+TABLE = None
+
+
 def run(binary, point, extra=()):
     """Run a point driver and return {block: {key: float}}."""
     cmd = [binary] + ["%.10g" % v for v in point] + list(extra)
+    env = dict(os.environ)
+    env.pop("HAPRAD_SI_TABLE", None)
+    if TABLE and binary == CPP:
+        env["HAPRAD_SI_TABLE"] = TABLE
     try:
         out = subprocess.run(cmd, capture_output=True, text=True,
-                             timeout=1800, cwd=DATADIR).stdout
+                             timeout=1800, cwd=DATADIR, env=env).stdout
     except subprocess.TimeoutExpired:
         return None
     blocks, cur = {}, None
@@ -276,12 +284,48 @@ def tier2(points):
     return allpass
 
 
+def table_coverage(points):
+    """How often the integrals looked the structure functions up outside the
+    table or in an unfitted cell -- the measured size of hurdle H7."""
+    print()
+    print("=" * 78)
+    print("TABLE COVERAGE  %s" % TABLE)
+    print("=" * 78)
+    print("  %-40s %12s %9s %9s %9s" % ("point (x,Q2,z,pt,phi)", "lookups", "outside", "empty", "unphys"))
+    print("  " + "-" * 82)
+    tot = {"sf_lookups": 0, "sf_oor": 0, "sf_empty": 0, "sf_unphys": 0}
+    for p in points:
+        r = run(CPP, p)
+        res = (r or {}).get("RES", {})
+        n = res.get("sf_lookups", 0)
+        if not n:
+            continue
+        for k in tot:
+            tot[k] += res.get(k, 0)
+        print("  x=%-5.3g Q2=%-4.3g z=%-4.3g pt=%-5.3g phi=%-5.4g %12d %8.2f%% %8.2f%% %8.2f%%"
+              % (p[1], p[2], p[3], p[4], p[5], n, 100. * res.get("sf_oor", 0) / n,
+                 100. * res.get("sf_empty", 0) / n, 100. * res.get("sf_unphys", 0) / n))
+    if tot["sf_lookups"]:
+        n = tot["sf_lookups"]
+        print("  " + "-" * 82)
+        print("  %-40s %12d %8.2f%% %8.2f%% %8.2f%%" % ("all points", n, 100. * tot["sf_oor"] / n,
+                                                       100. * tot["sf_empty"] / n, 100. * tot["sf_unphys"] / n))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--grid", choices=sorted(GRIDS), default="rge")
     ap.add_argument("--tier0-only", action="store_true")
+    ap.add_argument("--table", help="structure-function table for the C++ "
+                    "(TSemiInclusiveModel format); without one sigma_Born is zero")
     args = ap.parse_args()
+
+    global TABLE
+    if args.table:
+        TABLE = os.path.abspath(args.table)
+        if not os.path.exists(TABLE):
+            sys.exit("no such table: %s" % TABLE)
 
     if not os.path.exists(CPP):
         sys.exit("missing %s -- run `make` first" % CPP)
@@ -290,6 +334,8 @@ def main():
 
     t0 = tier0(points)
     hard_fail = any(ok is False for _, ok, _ in t0)
+    if TABLE:
+        table_coverage(points)
 
     if args.tier0_only:
         return 1 if hard_fail else 0
@@ -312,7 +358,7 @@ def main():
           % ("pass" if t1 else "FAIL"))
     print("  Tier 2 : %s   <-- should hold today; H1 does not excuse it"
           % ("pass" if t2 else "FAIL"))
-    print("  Tier 3 : %s   (expected to fail while H1 is open)"
+    print("  Tier 3 : %s   (fails unless both codes see the same model -- PLAN.md 2.3)"
           % ("pass" if t3 else "FAIL"))
     print("=" * 78)
     return 0 if (t1 and t2 and not hard_fail) else 1

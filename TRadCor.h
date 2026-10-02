@@ -7,6 +7,7 @@ class THapradConfig;
 class TKinematicalVariables;
 class TLorentzInvariants;
 class THadronKinematics;
+class TSemiInclusiveModel;
 
 class TRadCor {
  public:
@@ -28,6 +29,12 @@ class TRadCor {
   Double_t GetSigObs() { return sig_obs; }
   Double_t GetTail(Int_t i) { return tai[i]; }
 
+  // Semi-inclusive structure-function table (see TSemiInclusiveModel.h for the
+  // format). Without one, A = Ac = Acc = 0, so sigma_Born = 0 and every RC
+  // factor is returned as 0. Returns false if the file cannot be used.
+  Bool_t LoadSemiInclusiveTable(const char* path);
+  const TSemiInclusiveModel* GetSemiInclusiveModel(void) const { return fSIModel; };
+
   void RegisteredLepton(Int_t type = 1);
   void IntegratePhiRad(Int_t type = 0);
   void IntegratePhiHad(Int_t type = 0);
@@ -48,6 +55,7 @@ class TRadCor {
   TKinematicalVariables* fKin;
   TLorentzInvariants* fInv;
   THadronKinematics* fHadKin;
+  TSemiInclusiveModel* fSIModel;
 
   // Target Z and A proportion NAZ = Z/A
   Double_t NAZ;

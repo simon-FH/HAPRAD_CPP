@@ -32,6 +32,24 @@ relative path (`pi_n_maid.dat`, the `*.grid` fragmentation functions).
 HAPRAD expects, by comparing `V1 = 2 k1.p_h` from the four-vectors against
 `THadronKinematics::V1()`. It also classifies every event HAPRAD rejects.
 
+### Structure-function tables
+
+The C++ needs a table of azimuthal amplitudes (format in
+`../TSemiInclusiveModel.h`); without one sigma_Born is exactly zero.
+
+```bash
+./bin/make_toy_table /tmp/toy.root reduced          # known analytic amplitudes
+./compare.py --grid rge --table /tmp/toy.root       # also prints table coverage
+HAPRAD_SI_TABLE=/tmp/toy.root ./bin/rc_point 10.5473 0.234 2.5 0.34 0.424 60
+```
+
+With a table, `rc_point` also reports `sf_lookups`, `sf_oor`, `sf_empty` and
+`sf_unphys`: how many structure-function lookups the integrals made in that call,
+and how many fell outside the table, in an unfitted cell, or below threshold.
+`HAPRAD_SI_NEAREST=1` switches the reader from interpolation to nearest-cell
+lookup, for comparison only -- see PLAN.md 0.2 for why that mode breaks the
+inner R integral.
+
 ## The tiers
 
 They are ordered so that a failure in one invalidates the ones below it.
@@ -51,11 +69,13 @@ semi-inclusive model is still missing.
 ## Current status
 
 ```
-Tier 0 : pass   every model-independent quantity is finite; the four checks that
-                need a live model report SKIP rather than passing vacuously
-Tier 1 : pass   agreement to ~4e-14 at both 6 GeV and 10.5 GeV
-Tier 2 : pass   agreement to 3e-5 .. 1.5e-4  (was failing by a factor of 2-3.5)
-Tier 3 : FAIL   expected: sigma_Born is uninitialised memory (hurdle H1)
+                no table                      --table toy_reduced.root
+Tier 0 : pass   (4 of 5 checks SKIP)          pass, all 5 checks run
+Tier 1 : pass   ~4e-14 at 6 and 10.5 GeV      unchanged
+Tier 2 : pass   3e-5 .. 1.5e-4                unchanged
+Tier 3 : FAIL   sigma_Born = 0                FAIL by construction: a toy table and
+                                              HAPRAD 2.0's PDF x FF model are
+                                              different physics (PLAN.md 2.3)
 ```
 
 Tier 1 passing at RG-E energies is the substantive good news: the whole
