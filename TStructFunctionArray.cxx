@@ -25,6 +25,7 @@ TStructFunctionArray::TStructFunctionArray(const TRadCor *rc) {
   fKin = rc->GetKinematicalVariables();
   fInv = rc->GetLorentzInvariants();
   fHadKin = rc->GetHadronKinematics();
+  fModel = rc->GetSemiInclusiveModel();
 }
 
 TStructFunctionArray::~TStructFunctionArray() {
@@ -80,11 +81,11 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
     Double_t tldE = 0.5 * (tldNu + Sqrt(SQ(tldNu) + 4 * a));
     Double_t tldY = tldNu / tldE;
 
-    Double_t A;
-    Double_t Ac;
-    Double_t Acc;
-
-    // HapradUtils::SemiInclusiveModel(tldQ2, tldX, tldY, tldZ, tldPt2, tldPx2, tldPl, A, Ac, Acc);
+    // Measured azimuthal amplitudes at the (shifted) kinematics of this
+    // evaluation. These were three uninitialised doubles, filled only by an
+    // external script that sed-substituted constants into this file.
+    Double_t A = 0., Ac = 0., Acc = 0.;
+    if (fModel) fModel->Evaluate(tldQ2, tldX, tldY, tldZ, tldPt2, tldPx2, tldPl, A, Ac, Acc);
 
     // Relation between data yield and Hizs
     Double_t rlt = 0.14;  // Constant separating the long. & trans. cross-sections

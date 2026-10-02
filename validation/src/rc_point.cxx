@@ -21,6 +21,7 @@
 #include "THadronKinematics.h"
 #include "THapradException.h"
 #include "TRV2TR.h"
+#include "TSemiInclusiveModel.h"
 #include "haprad_constants.h"
 
 #include <cstdio>
@@ -104,6 +105,15 @@ int main(int argc, char** argv) {
   printf("### BEGIN RES\n");
   {
     TRadCor rc;
+    // Structure-function table: HAPRAD_SI_TABLE=<path>. Without one the
+    // amplitudes are zero, and so are sigma_Born and every RC factor.
+    if (const char* table = getenv("HAPRAD_SI_TABLE")) {
+      if (!rc.LoadSemiInclusiveTable(table)) return 3;
+      // HAPRAD_SI_NEAREST=1: nearest-cell lookup instead of interpolation, for
+      // comparison only.
+      if (getenv("HAPRAD_SI_NEAREST"))
+        const_cast<TSemiInclusiveModel*>(rc.GetSemiInclusiveModel())->SetInterpolation(false);
+    }
     rc.CalculateRCFactor(E, x, Q2, z, pt, phi, m2th, 0.5);
 
     // Tier 2 diagnostic: dump the exclusive-tail integrand rv2tr(tau, phi_k)
@@ -140,6 +150,14 @@ int main(int argc, char** argv) {
     emit("f1", rc.GetFactor1());
     emit("f2", rc.GetFactor2());
     emit("f3", rc.GetFactor3());
+    // Table diagnostics for this call: how many structure-function lookups the
+    // integrals made, and how many fell outside the table or in an empty cell.
+    if (const TSemiInclusiveModel* m = rc.GetSemiInclusiveModel()) {
+      emit("sf_lookups", m->NLookups());
+      emit("sf_oor", m->NOutOfRange());
+      emit("sf_empty", m->NEmptyCell());
+      emit("sf_unphys", m->NUnphysical());
+    }
   }
   printf("### END RES\n");
 

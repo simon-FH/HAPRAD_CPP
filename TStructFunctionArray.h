@@ -7,6 +7,7 @@ class TRadCor;
 class TKinematicalVariables;
 class TLorentzInvariants;
 class THadronKinematics;
+class TSemiInclusiveModel;
 
 class TStructFunctionArray {
  public:
@@ -22,6 +23,7 @@ class TStructFunctionArray {
   const TKinematicalVariables* fKin;
   const TLorentzInvariants* fInv;
   const THadronKinematics* fHadKin;
+  const TSemiInclusiveModel* fModel;
 
   Double_t fArray[4];
 };

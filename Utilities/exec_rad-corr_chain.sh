@@ -86,32 +86,22 @@ for tar in "${targets[@]}"; do
     # fit the `PhiPQ` distributions
     ./bin/FitPhiPQ -t${tar} -p${pid}
 
-    # (related to structure functions)
-    # replace the following lines with the previously obtained values
-    source fit-results_${tar}.sh
-    cd ${HAPRAD_CPP}
-    sed -i "s|Double_t A;|Double_t A = ${PARAM_A};|g" TStructFunctionArray.cxx
-    sed -i "s|Double_t Ac;|Double_t Ac = ${PARAM_AC};|g" TStructFunctionArray.cxx
-    sed -i "s|Double_t Acc;|Double_t Acc = ${PARAM_ACC};|g" TStructFunctionArray.cxx
-
-    # recompile HAPRAD_CPP
-    make
-
-    # recompile Utilities
-    cd ${HAPRAD_CPP}/Utilities
-    make clean; make
-
     # (final step)
-    # get radiative correction factors
-    ./bin/GetRC -t${tar}
-
-    # (related to structure functions)
-    # restore TStructFunctionArray.cxx
-    cd ${HAPRAD_CPP}
-    sed -i "s|Double_t A = ${PARAM_A};|Double_t A;|g" TStructFunctionArray.cxx
-    sed -i "s|Double_t Ac = ${PARAM_AC};|Double_t Ac;|g" TStructFunctionArray.cxx
-    sed -i "s|Double_t Acc = ${PARAM_ACC};|Double_t Acc;|g" TStructFunctionArray.cxx
-    make
+    # get radiative correction factors.
+    #
+    # The structure-function amplitudes now come from a table file, loaded at
+    # run time (see TSemiInclusiveModel.h). This used to source the integrated
+    # fit from FitPhiPQ, sed the three constants into TStructFunctionArray.cxx,
+    # recompile, run, and sed them back out. Those constants made sigma_Born
+    # independent of z and p_t (hurdle H1) and caused the phi = 180 pole (H4).
+    # The per-cell producer is PLAN.md Phase 1; until it exists, supply tables
+    # by hand as ${SI_TABLE_DIR}/newphihist_<target>.root.
+    table="${SI_TABLE_DIR:-${HAPRAD_CPP}/Utilities}/newphihist_${tar}.root"
+    if [[ -f "${table}" ]]; then
+        ./bin/GetRC -t${tar} -e${BEAM_ENERGY:-5.015} -m"${table}"
+    else
+        echo "WARNING: no structure-function table ${table}; skipping GetRC for ${tar}."
+    fi
 
     # return to Utilities
     cd ${HAPRAD_CPP}/Utilities

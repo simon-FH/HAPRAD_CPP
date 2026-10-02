@@ -22,6 +22,10 @@ Int_t gPID;
 // per event.
 Double_t gBeamEnergy = 5.015;
 
+// Semi-inclusive structure-function table (TSemiInclusiveModel format). GetRC
+// needs one: without it the amplitudes, sigma_Born and every RC factor are 0.
+TString gTablePath = "";
+
 TString gProgram = "";
 
 /*** Input-related functions ***/
@@ -45,6 +49,9 @@ void printUsage() {
       std::cout << "    default is " << gBeamEnergy << " (CLAS/EG2); "
                 << "RG-E is 10.3894 / 10.4057 / 10.5473 by run" << std::endl;
       std::cout << std::endl;
+      std::cout << "./" << gProgram << " -m<table.root>" << std::endl;
+      std::cout << "    structure-function table (see TSemiInclusiveModel.h); required" << std::endl;
+      std::cout << std::endl;
     }
   }
 }
@@ -55,7 +62,7 @@ void parseCommandLine(int argc, char* argv[]) {
     std::cerr << "Empty command line. Execute ./" << gProgram << " -h to print help." << std::endl;
     exit(0);
   }
-  while ((c = getopt(argc, argv, "ht:p:e:")) != -1) switch (c) {
+  while ((c = getopt(argc, argv, "ht:p:e:m:")) != -1) switch (c) {
       case 'h':
         printUsage();
         exit(0);
@@ -68,6 +75,9 @@ void parseCommandLine(int argc, char* argv[]) {
         break;
       case 'e':
         gBeamEnergy = atof(optarg);
+        break;
+      case 'm':
+        gTablePath = optarg;
         break;
       default:
         std::cerr << "Unrecognized argument. Execute ./" << gProgram << " -h to print help." << std::endl;
@@ -85,6 +95,7 @@ void printOptions() {
       std::cout << "  gPID            = " << gPID << std::endl;
     } else {
       std::cout << "  gBeamEnergy     = " << gBeamEnergy << " GeV" << std::endl;
+      std::cout << "  gTablePath      = " << gTablePath << std::endl;
     }
   }
   std::cout << std::endl;

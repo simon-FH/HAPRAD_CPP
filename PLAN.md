@@ -107,6 +107,56 @@ same one, since it defines what "semi-inclusive" means for the exclusive tail.
 **Done when:** a synthetic table loads from an arbitrary path, the harness
 reports the out-of-range fraction, and Tier 1/2 values are bit-identical.
 
+**DONE.** `TSemiInclusiveModel` is now a class owned by `TRadCor`
+(`LoadSemiInclusiveTable(path)`), and its file format is documented in
+`TSemiInclusiveModel.h`: THnDs `A`, `Ac`, `Acc`, optional `fitted`, with each
+axis *named* for its variable, so any four of `Q2, x, nu, z, pt, pt2` work in any
+order. Malformed tables are refused with a specific message. `GetRC` takes `-m`
+and refuses to run without a table; the `sed` hack is gone from
+`exec_rad-corr_chain.sh`. With no table the amplitudes are exactly zero, and
+all 108 model-independent values stayed bit-identical.
+
+Two things were found that were not in the plan, and both shaped the result.
+
+**Interpolation is required, not optional.** A nearest-cell lookup makes the
+integrand piecewise constant, and the non-adaptive rule used for the inner R
+integral (`TRV2LN`) cannot converge across the steps. With a toy table this gave
+thousands of GSL tolerance failures per call and, at one point, an RC factor of
+**2.24 that was pure integrator garbage**. A table with no steps gave zero
+failures, which pins the cause. The reader now interpolates multilinearly
+between cell centres:
+
+```
+toy table, x=0.3 Q2=4 z=0.5 pt=0.5   GSL failures   f1        lookups
+  phi=150  nearest cell                     1533    2.2355    133k
+  phi=150  interpolated                       14    1.0430     63k
+  phi=30   nearest cell                    15096    0.9939    1.3M
+  phi=30   interpolated                      446    0.9326     64k
+```
+
+For a constant table the two modes agree to 4e-15 (rounding). The remaining
+failures come from the kinks multilinear interpolation leaves at cell centres;
+their effect on the result is to be measured in Phase 2.3, where there is a
+correct answer to compare against.
+
+**Store the reduced amplitudes.** A raw table holds `Ac` and `Acc`, which stay
+non-zero across the lowest p_t cell; the inversion then divides by p_t and
+p_t^2 and the phi = 180 pole of H4 returns. The format therefore supports
+`pt_scaling = "reduced"`: the table holds `Ac/p_t` and `Acc/p_t^2` and the reader
+multiplies back by the p_t of each lookup, so the amplitudes vanish with the
+right power by construction:
+
+```
+phi        f1 (raw)     f1 (reduced)
+170        1.0362       1.0292
+179.99     1.2267       1.0292
+180      105.6460       1.0292
+```
+
+**The producer should write reduced tables.** With one, all five Tier 0 checks
+pass -- none skipped -- and the table-coverage report shows 0.30% of lookups
+outside the toy table over the RG-E grid.
+
 ### 0.3 Choose the model-grid variables
 
 **Recommendation: bin the table in `(Q2, nu, z_h, Pt2)`, not `(Q2, x_B, z_h, p_t)`.**
@@ -116,6 +166,10 @@ RG-E's acceptance tool, `acc_corr`, already produces a 5-D acceptance ordered
 that acceptance map directly. In `(x_B, p_t)` we would need a second
 acceptance in different variables. The consumer converts trivially:
 `nu = Q2 / (2 M x)`, `Pt2 = p_t^2`.
+
+**Supported as of 0.2** -- the reader takes the variables from the axis names,
+so this is now purely the producer's choice. `make_toy_table` already writes
+`(Q2, nu, z, pt2)`.
 
 ---
 

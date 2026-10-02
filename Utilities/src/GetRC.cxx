@@ -72,6 +72,12 @@ int main(int argc, char **argv) {
   Double_t f1, f3;
 
   TRadCor rc;
+  if (gTablePath == "") {
+    std::cerr << "ERROR: no structure-function table given (-m). Without one every "
+              << "RC factor is 0." << std::endl;
+    exit(EXIT_FAILURE);
+  }
+  if (!rc.LoadSemiInclusiveTable(gTablePath)) exit(EXIT_FAILURE);
 
   // define and create output file
   std::ofstream out;
