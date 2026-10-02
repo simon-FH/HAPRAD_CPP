@@ -53,7 +53,7 @@ C     Same masses as haprad2_point and the C++ haprad_constants.h.
          bc = 2.d0 * bc / DBLE(nphi)
          bcc = 2.d0 * bcc / DBLE(nphi)
       ENDIF
-      WRITE (*, '(4(i5,1x),i2,3(1x,e24.16))') j0, j1, j2, j3, ok,
+      WRITE (*, '(4(i9,1x),i2,3(1x,e24.16))') j0, j1, j2, j3, ok,
      &      b0, bc, bcc
       GOTO 10
  99   CONTINUE

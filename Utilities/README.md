@@ -24,8 +24,15 @@ thresholds -- is in the config file; `config/rge_pip.cfg` documents each key.
 One table is built per beam energy.
 
 The table records `acceptance_corrected = no`: acceptance correction is not
-applied yet. See `PLAN.md` (Phase 1) for what A is and how it is normalised,
-and `validation/closure_producer.py` for the closure test.
+applied yet. An optional `weight_branch` (e.g. 1/acceptance) weights each event.
+
+**The table's absolute scale matters.** HAPRAD adds the exclusive radiative
+tail in absolute units (MAID), while the Born cross section and the inelastic
+tail scale with the table. Without the optional `luminosity` key (events per
+nb) the table is in arbitrary units and the exclusive tail is effectively
+switched off; the table records which. See `PLAN.md` (Phase 1) for what A is
+and how it is normalised, and `validation/closure_producer.py` and
+`validation/closure_normalisation.py` for the closure tests.
 
 ## The EG2 chain (CLAS6)
 
