@@ -1,163 +1,219 @@
-# HAPRAD_CPP for CLAS12 / RG-E — game plan
+# HAPRAD_CPP for CLAS12 / RG-E — work plan
 
 Companion to [H1_NOTES.md](H1_NOTES.md) and [validation/README.md](validation/README.md).
-Status as of commit `3ad1a7b`.
 
----
+## Decisions taken
 
-## Where we are
+| | |
+|---|---|
+| Structure-function input | **iterative table** (`newphihist.root`), as originally designed. Fitting an equation for the amplitudes (A) or for the RC factor (B) comes *after* this works, using its outputs as training data |
+| Applying the correction | **per-event weights**, interpolated from a precomputed RC grid — not one HAPRAD call per analysis-bin centroid |
+| Hadrons | **pions**. pi+ first: every input exists. pi- once an exclusive grid exists (Phase 6) |
+| Iterations | to a **tolerance**, not a fixed count. Expect 2-3: model error is suppressed by roughly `delta - 1 ~ 0.05` per pass at our measured `delta ~ 1.02-1.11` |
+
+## Starting point
 
 ```
 Tier 0 : pass     self-consistency; every model-independent quantity finite
 Tier 1 : pass     kinematics vs HAPRAD 2.0 FORTRAN, ~4e-14, at 6 and 10.5 GeV
 Tier 2 : pass     exclusive radiative tail vs FORTRAN, 3e-5 .. 1.5e-4
-Tier 3 : FAIL     blocked on H1 -- sigma_Born reads uninitialised memory
+Tier 3 : FAIL     no structure-function table exists yet
 ```
 
-Everything that can be validated without a structure-function model now agrees
-with the reference implementation. The QED machinery is not in question; the
-physics *input* is missing.
+The QED machinery is validated, and the A/Ac/Acc -> H1..H4 inversion round-trips
+exactly. What is missing is the table, and the code around it to build, consume,
+apply and iterate it.
 
-### Settled
-
-| | |
-|---|---|
-| CERNLIB | no longer required; PDFLIB 8.04 built at `~/cernlib` as insurance, and it is what makes `haprad2` runnable as the reference |
-| Validation | 4-tier harness against the original FORTRAN, `validation/compare.py` |
-| p_t Jacobian | `Initialization()` tested `fKin->T() >= 0` *after* `Evaluate()` had overwritten T; every absolute cross section was low by `sqrt(lambda_q)/(2 M p_l)`, a factor 2-3.5. RC factors were unaffected (N cancels) |
-| H4 | NaN at phi=180 contained, and root-caused to H1 rather than to the integrator |
-| Latent bugs | `fLepton` uninitialised, swapped setters, stale results between calls, non-finite RC factors, dead members, unchecked file open, empty build dependencies -- all fixed, all verified numerically inert |
-| H1 design | confirmed with the port's author: deliberately data-driven, no external model. The A/Ac/Acc -> H1..H4 inversion **round-trips exactly**; nothing there needs porting |
-
-### The one open blocker
-
-`TStructFunctionArray` needs `A`, `Ac`, `Acc` per `(Q2, x_B, z_h, p_t)` cell.
-Nothing currently produces them. The chain instead fits the *integrated* sample
-and seds three constants into the source, which makes `sigma_Born` independent
-of z and p_t by construction -- and is the direct cause of H4.
+**Measured cost:** one HAPRAD call at RG-E kinematics takes **0.45-1.5 s**. A
+grid of 18,000 points is roughly 4-8 core-hours — overnight on a laptop with
+`xargs -P`, or minutes as a cluster job array.
 
 ---
 
-## The sequence
+## Phase 0 — Foundations (local, no data needed)
 
-### 1. Binning study — hours, no dependencies
+### 0.1 Check that RG-E's `phi_PQ` is HAPRAD's `phi_h`
 
-Choose the grid the producer writes on. Preliminary numbers, run 020026, 275737
-pi+ DIS events:
+A convention mismatch here is silent: shifting phi by pi flips the sign of A_c
+and nothing complains.
 
-```
-grid                  cells  filled   N>=1000  median N  sig(Ac/A)
-EG2-like 6x5x10x5      1500     959        55        22      0.302
-moderate 4x4x5x4        320     254        36        79      0.159
-coarse   3x3x4x3        108      96        27       194      0.102
-```
+`phi_pq()` in `clas12-rge-analysis/src/rge_particle.c` rotates the virtual photon
+onto +z with the scattered electron in the xz-plane, then takes
+`atan2(p_y, p_x)` — the Trento construction, with phi = 0 on the lepton side.
+HAPRAD writes `V_{1,2} = 2(a_{1,2} + b cos phi_h)` with `b = -p_t sqrt(lambda/lambda_q) < 0`,
+which also puts phi_h = 0 on the lepton side. **So they very likely agree** —
+but that rests on the sign convention of `rge_rotate_y`, which I have not
+checked.
 
-`sigma(Ac/A) ~ sqrt(2/N)`; physical modulations are 5-20%, so the bar is
-`sigma <~ 0.03`, i.e. **N >~ 2200 per cell**.
+**Test:** for real events, pair each pion with its trigger electron by
+`event_num`, compute `V1 = 2 k1·p_h` directly from the four-vectors, and compare
+with `THadronKinematics::V1()` evaluated from `(x, Q2, z, p_T, phi_PQ)`.
+Agreement settles it. Agreement only under `phi -> pi - phi` or `phi + pi` means
+a conversion is needed.
 
-**`runs_all.txt` lists 384 runs and exactly one is processed.** Scaled to the
-full set, the EG2-like grid reaches `sigma ~ 0.015` and a finer 8x6x10x6 reaches
-`~0.021`. So: **choose the grid for the final dataset, not for what exists
-today**, and make the binning a parameter so it can be re-run. Treat
-`sqrt(2/N)` as a floor -- acceptance correction inflates it.
+**Done when:** V1 agrees to rounding on run 020026.
 
-### 2. The producer — data -> `newphihist.root`
+### 0.2 Rework the consumer (`TSemiInclusiveModel`)
 
-Start from `git show b303487^:PhiHist/phihist.cpp`, which is the original and
-was deleted in `b303487`. It reads a 5-D table `(Q2, Xb, Zh, Pt, Phi, Val, Err)`
-and fits `A + Ac cos(phi) + Acc cos(2 phi)` per cell, writing NTuple
-`AAcAcc_data` with `Q2:Xb:Zh:Pt:A:AErr:Ac:AcErr:Acc:AccErr:ChiSQ`.
+* **Read the binning from the file**, not from hardcoded `THnD` axes. The
+  producer writes axis edges and variable names as metadata into the ROOT
+  file, and the consumer builds its histograms from that. Producer and
+  consumer then *cannot* disagree on the grid — which is otherwise the easiest
+  way to make every lookup land in the wrong cell.
+* **Filename as a parameter, with a reload.** Drop `static` one-shot init and
+  the hardcoded `newphihist.root` in the cwd. This is what forced EG2's
+  `cp`/`mv`/`rm` shuffle per target, and an iteration loop would repeat it
+  every pass.
+* **Explicit out-of-range and empty-cell handling, with counters.** Today it
+  clamps to the edge bin silently. For v1 keep clamping, but *count* the
+  fraction of integrand evaluations that fall outside the table or in an
+  unfitted cell, and report it per call. That turns H7 from a guess into a
+  measurement, and the decision about what to do there can wait for the number.
+* **Un-comment the call** at `TStructFunctionArray.cxx:87`.
 
-`GetCentroids` already builds acceptance-corrected per-bin `phi_PQ` histograms
-and keeps only their mean; fit them instead of averaging them.
+**Done when:** a synthetic table loads from an arbitrary path, the harness
+reports the out-of-range fraction, and Tier 1/2 values are bit-identical.
 
-Watch for:
+### 0.3 Choose the model-grid variables
 
-* the model grid is in **x_B and p_t**, while the analysis binning is in
-  **nu and p_T^2**. Different variables, not just different edges
-  (`bin[3] = sqrt(pt2)` in `TSemiInclusiveModel.cxx`).
-* `MIN_BIN = 4` in the original: cells with fewer than 4 filled phi bins get no
-  fit and vanish from the table, which `THnD` then reads back as zero.
-* `SetBinError(j, Err*1.04)` -- a 4% inflation worth understanding before copying.
-* this step absorbs the rest of H3 (RG-E branch names, targets, vertex cuts).
+**Recommendation: bin the table in `(Q2, nu, z_h, Pt2)`, not `(Q2, x_B, z_h, p_t)`.**
 
-### 3. Re-enable the consumer
-
-* uncomment `SemiInclusiveModel(...)` at `TStructFunctionArray.cxx:87`
-* make the `THnD` axes match the producer's grid -- they are hardcoded to the
-  EG2 values and **must** agree or every lookup lands in the wrong cell
-* make the input filename a parameter and allow a reload. It is currently
-  hardcoded to `newphihist.root` in the cwd with `static` one-shot init, so EG2
-  had to `cp`/`mv`/`rm` files around per target. An iteration loop doing that
-  per pass per target is where mistakes will hide
-* **decide the out-of-range policy** (below)
-
-### 4. Closure test
-
-Toy 5-D distribution with known A/Ac/Acc -> producer -> table -> HAPRAD.
-Tier 0's four skips and Tier 3 should all go green. This validates the whole
-chain *before* acceptance correction lands, which is exactly the "get this ready
-before that" the professor asked for.
-
-### 5. Blocked externally
-
-Acceptance correction -> real amplitudes -> Tier 3 against real data ->
-iteration.
-
-### 6. Iteration loop
-
-The existing chain does **zero** iterations; its only loop is over targets. The
-papers require iteration but never give a count. From our own measured
-`delta ~ 1.02-1.11`, model error is suppressed by `(delta - 1) ~ 0.05` per pass,
-so 2 passes reach sub-percent and 3 are comfortably converged -- worse at high z
-where we measured `delta ~ 0.86`. **Iterate to a tolerance, not a fixed count**,
-and report how many it took; failure to converge is itself a diagnostic.
+RG-E's acceptance tool, `acc_corr`, already produces a 5-D acceptance ordered
+`[Q2][nu][z_h][Pt2][phi_PQ]`. A table in the same variables and edges can use
+that acceptance map directly. In `(x_B, p_t)` we would need a second
+acceptance in different variables. The consumer converts trivially:
+`nu = Q2 / (2 M x)`, `Pt2 = p_t^2`.
 
 ---
 
-## Decisions needed
+## Phase 1 — The producer (develop on run 020026, run on the cluster)
 
-1. **Table or functional form?** A per-cell table cannot be evaluated outside
-   the measured region, and a single Born point at `x = 0.234` has its tails
-   sampling out to `x ~ 0.83, Q2 ~ 8.5` -- beyond RG-E statistics. Today that is
-   silent edge-bin clamping, which is the failure mode documented in
-   `~/externals/CLAS12_MIGRATION_PLAN.md`. A smooth fit in `(Q2, x, z, p_t)`
-   extrapolates; precedent exists in `h3.f`/`h4.f` (6 parameters each) and in
-   the dead `ConfigFile` hook asking for `par0..par4, A1..E1`.
-   **Suggested compromise:** build the table first, then fit a smooth function
-   *to the table* rather than to the raw 5-D data -- ordinary least squares on
-   ~1500 points with error bars, not a 5-D likelihood.
-2. **Event weights or per-bin centroids?** Centroids assume the RC is linear
-   across a bin and couple the analysis binning to the RC evaluation. Weights
-   decouple them, allow free rebinning, and are what makes iteration work --
-   corrected events can be re-histogrammed onto whatever grid the next pass
-   wants. HAPRAD is far too slow per event, so this means a precomputed grid in
-   `(E, x, Q2, z, p_t, phi)` plus interpolation.
-3. **Hadron species.** Everything is pi+ on a proton: `kMassDetectedHadron`, the
-   fragmentation set, and the MAID grid (pi+ n). pi- needs its own exclusive
-   grid; `haprad3` ships one.
-4. **Nuclear targets (H15).** This is a free-proton calculation.
-   `GetFactor3`'s `Z/A` on the exclusive tail is ad hoc. Does the RC cancel in
-   your multiplicity ratios?
+`MakePhiTable`: RG-E ntuples -> `newphihist.root`. Starting point is
+`git show b303487^:PhiHist/phihist.cpp`, deleted from this repo in `b303487`.
 
-## Deliberately deferred
+1. **Read the `DT` ntuples** — pi+, DIS cuts, vertex window. Takes a file list,
+   writes one small ROOT file. Built to run unchanged on the cluster.
+2. **Binning from a config file**, never compiled in.
+3. **Acceptance as a pluggable input** reading the `acc_corr` format. v0 runs
+   with unit acceptance, *flagged in the output file*, so uncorrected tables
+   cannot be mistaken for real ones.
+4. **Per-cell fit** of `A + Ac cos(phi) + Acc cos(2 phi)`, keeping errors,
+   chi^2 and a fit-status flag. The original's `MIN_BIN = 4` silently dropped
+   sparse cells; record them as unfitted instead.
+5. **Output** `AAcAcc_data` plus the binning metadata 0.2 reads.
 
-* **MAID2003 -> 2007.** Verified drop-in (same 18x47x61 layout), but swapping it
-  now breaks Tier 2, which agrees with `haprad2` *because both use MAID2003*.
-  Do it on both sides at once, after H1.
-* **H11**, the `sigma_obs` form: C++ uses `sigma_B e^{delta_inf}(1 + delta_VR +
-  delta_vac)`, the FORTRAN forces `delta_inf = 0` and uses
-  `sigma_B (1 + alpha/pi delta)`. Equivalent to O(alpha^2). This sets the floor
-  on Tier 3 agreement at ~1e-3; do not expect machine precision.
-* `TQQTPhi`'s `+ep` on the upper tau limit where `qqtphi` uses `-ep`, and the
-  missing-mass gate differing from `fhaprad`'s. Both are core calculation;
-  recorded, not touched.
+`phi_PQ` is in radians in RG-E; the fit and HAPRAD both work in degrees.
+Convert once, at the reader.
 
-## Definition of done
+**Also from this phase:** the occupancy table for the binning study falls out
+for free — the producer already fills every cell. Run it over the full dataset
+on the cluster and choose the final grid from that, not from one run.
+
+**Done when:** a table from run 020026 loads in HAPRAD and Tier 3 runs (it won't
+*agree* yet — no acceptance, one run).
+
+---
+
+## Phase 2 — Closure tests (local, no data needed)
+
+The point of this phase is to prove the chain is right *before* acceptance
+correction and the full dataset exist.
+
+1. **Consumer closure.** Write a synthetic table with smooth, known amplitudes
+   that carry the physical p_t scaling (`Ac ~ p_t`, `Acc ~ p_t^2`). Run HAPRAD,
+   project sigma_Born(phi) back into harmonics, recover the inputs. Extends the
+   round-trip check already done, but through the real file-loading path.
+   Tier 0's four skipped checks should now run and pass, and the phi = 180 pole
+   (H4) should be gone.
+2. **Producer closure.** Generate toy events in the `DT` format with a known
+   azimuthal modulation, run `MakePhiTable`, recover the amplitudes within
+   their fitted errors.
+3. **A Tier 3 that can actually agree.** Write a Born-only FORTRAN driver
+   (`conkin` + `bornin`; no tail integrals, so it is fast), use it to tabulate
+   A/Ac/Acc *from HAPRAD 2.0's own PDF x FF model* on our grid, and feed that
+   table to the C++. Same model both sides, so Tier 3 compares like with like.
+   Expect agreement at the level of the table's discretisation, with a floor
+   near 1e-3 from H11.
+4. Add all three to `validation/compare.py`.
+
+**Done when:** all five Tier 0 checks pass with no SKIPs, and Tier 3 agrees with
+HAPRAD 2.0 on the model-derived table.
+
+The Born-only driver from step 3 is also the tool that later generates training
+data for the equation fits.
+
+---
+
+## Phase 3 — Applying the correction as weights
+
+1. **`MakeRCGrid`** — run HAPRAD over a grid in `(x, Q2, z, p_t, phi)`, one grid
+   per beam energy (RG-E has three: 10.3894, 10.4057, 10.5473 GeV). Written as
+   independent chunks so it parallelises with `xargs -P` locally or as a job
+   array on the cluster.
+2. **`ApplyRC`** — read events, interpolate the RC factor at each event's own
+   kinematics, write the weight as a friend tree. Any analysis binning can then
+   be applied afterwards.
+3. **Interpolation error budget.** Call HAPRAD directly at random off-grid
+   points and compare with the interpolated value. The grid is fine enough when
+   this sits well below the statistical errors.
+
+**Done when:** weights exist for run 020026 and the interpolation error is
+quantified.
+
+---
+
+## Phase 4 — The iteration loop
 
 ```
-./validation/compare.py --grid rge
+table_k  ->  RC grid_k  ->  weights_k  ->  table_{k+1} from RC-corrected data
 ```
 
-Tier 0 all five PASS with no SKIPs; Tier 3 agreeing with HAPRAD 2.0 at ~1e-3.
-H4 closes on its own, since real fitted amplitudes vanish as p_t -> 0.
+* Scripted end to end, **per target** — fitting the amplitudes on each target's
+  own data absorbs the nuclear structure-function differences automatically,
+  which is why EG2 produced a table per target.
+* Iteration 0's table comes from RC-uncorrected (but acceptance-corrected) data.
+* Stop when `max |delta_k - delta_{k-1}|` over the grid falls below a tolerance.
+  Record the number of iterations; failure to converge is itself a sign that the
+  grid or the cuts are wrong.
+
+**Done when:** the loop converges on run 020026.
+
+---
+
+## Phase 5 — Production
+
+Full dataset on the cluster, all targets, real acceptance. `GetRC` and the
+centroid path are superseded by the weights and can be retired.
+
+---
+
+## Phase 6 — After it works
+
+* **Equation fit for the amplitudes (A)** — the converged tables are the
+  training data. The hard part is a functional form valid over the *integration
+  domain*, not just the measured one: the existing `h4.f` form reaches 3.7e53 at
+  x = 0.015, so EG2-era shapes do not transfer.
+* **Equation fit for the RC factor (B)** — the RC grids are the training data.
+  Fit `delta_0`, `delta_c`, `delta_cc` in five variables. Refit every iteration.
+* **pi-** — needs a MAID gamma* n -> pi- p exclusive grid. None exists on this
+  machine (`haprad3` has pi+ and pi0 only).
+* **MAID2003 -> 2007** — a verified drop-in, but swap it on *both* sides at once,
+  or Tier 2 loses the reference it currently agrees with.
+
+---
+
+## Blocked on things outside this repo
+
+| | needed for | notes |
+|---|---|---|
+| Acceptance maps | Phase 1 onward, for real numbers | `acc_corr` in `clas12-rge-analysis` produces them; needs simulation |
+| Full dataset | Phase 1 binning choice, Phase 5 | `runs_all.txt` lists 384 runs; 1 is processed locally |
+| Target separation | Phase 1 | RG-E constants hold only a global `vz` window (-40, 26.12 cm); per-target windows for the LD2 cell vs the solid foil are still to be defined |
+| Nuclear corrections beyond the SFs | Phase 5 | the exclusive tail (MAID is free-proton), Coulomb distortion (`RGE_RC_CC` already exists), and external radiation in the target. Whether they matter depends on whether the observable is a ratio in which they cancel — a call for the professor |
+
+## Order of work
+
+Phase 0 and Phase 2 need no data at all and should come first — they take the
+chain from "validated pieces" to "validated whole". Phase 1 can be developed on
+run 020026 in parallel and moved to the cluster unchanged. Phases 3-4 follow
+once a table loads.
