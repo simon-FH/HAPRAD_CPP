@@ -90,6 +90,20 @@ modulation in each cell is compared with the truth as pulls. Expected: mean 0,
 width 1. Average a few seeds -- one seed's 187 cells only pin the mean to
 +-0.07.
 
+### Normalisation closure (PLAN.md Phase 1)
+
+```bash
+./closure_normalisation.py [n_events]
+```
+
+Toy pions uniform in (Q2, nu, z, pt2, phi), weighted by HAPRAD 2.0's Born
+cross section (`bin/make_weighted_events` + `bin/born_harmonics`), go through
+`MakePhiTable` with the generator's luminosity, on 4^4, 6^4 and 8^4 grids.
+Per cell it reports producer / model (`make_model_table`, end to end), true
+cell average / model (bin-centring), and producer / true cell average
+(`MakePhiTable` alone). Expected: the last is 1 for A, and 1 within errors for
+Ac/A and Acc/A, flat in every variable. 3M events take about 4 minutes.
+
 ## The tiers
 
 They are ordered so that a failure in one invalidates the ones below it.

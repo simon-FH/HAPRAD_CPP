@@ -237,13 +237,61 @@ the vertex window and M_x > 1.5 GeV. On the full-dataset grid of the config
 With the coarse table loaded, **all five Tier 0 checks pass**, and the table
 coverage gives the first real measurement of H7: over the RG-E test points the
 tail integrals looked up structure functions **outside the table 4.9% of the
-time, and in an unfitted cell 12.5%**. The full dataset will fill empty cells;
-it will not reach outside the data's kinematic range.
+time, and in an unfitted cell 12.5%** (6.1% and 14.1% after the fit fix below:
+the integrators adapt to the table, so the sampled points move). The full
+dataset will fill empty cells; it will not reach outside the data's kinematic
+range.
 
-**Still to do here:** a normalisation closure -- events weighted by HAPRAD
-2.0's Born cross section through the producer, checking that the resulting
-table reproduces that cross section across cells. That tests the
-`2 M E nu / K` construction directly. It needs a weight branch in `fill`.
+**Normalisation closure: DONE** (`validation/closure_normalisation.py`).
+3M toy pions uniform in (Q2, nu, z, pt2, phi), each weighted by HAPRAD 2.0's
+Born cross section times 1/(2 M E nu), through `fill` (new optional
+`weight_branch`) and `fit`; compared cell by cell with `make_model_table`'s
+table of the same model. The generator knows its luminosity, so the test is
+**absolute**. Three comparisons per cell, medians over cells:
+
+| grid (x 12 phi) | cells | producer / model, A | bin-centring, A | producer / cell average: A, Ac/A, Acc/A |
+|---|---|---|---|---|
+| 4^4 | 223 | 1.116 | 1.115 | 1.000, 1.002, 0.997 |
+| 6^4 | 792 | 1.060 | 1.061 | 1.000, 0.994, 1.000 |
+| 8^4 | 1601 | 1.036 | 1.036 | 1.000, 1.003, 1.007 |
+
+* **MakePhiTable is right, absolutely.** Against the true cell average it gives
+  A to 0.01%, and the modulations to within their fit errors, flat in every
+  variable -- so the `2 M E nu` Jacobian, the cell volume, the luminosity and
+  the phi fit are all correct. A missing nu factor would have been a factor ~3
+  across the nu range.
+* **Everything left is bin-centring:** the table holds cell *averages* and
+  HAPRAD reads them as values at the cell *centre*. For A it is +11.5%, +6.1%,
+  +3.6% on the three grids, shrinking roughly as (cell width)^2; the config
+  grid is finer still. For the modulations it is ~1%, except in the lowest pt2
+  bin: there Ac/A is low by ~14% on *every* grid, because Ac ~ p_t is not
+  smooth at p_t = 0 and halving the bin does not help. A bin-centring
+  correction (or storing the cell's mean kinematics) is a candidate for Phase 4,
+  where the iteration can absorb it.
+
+Three things this check found, now fixed in `MakePhiTable`:
+
+1. **The fit was biased low by ~1/n** for n events per phi bin (0.1%, 0.5%,
+   1.3% on the three grids). It took each bin's variance from its own content,
+   so bins that fluctuated low got small errors and pulled the fit down -- on the
+   full grid's sparse cells, several percent, varying cell to cell. The fit now
+   takes the variances from its own prediction and iterates (quasi-Poisson).
+   The producer closure above is unchanged: six seeds, pulls of Ac/A +0.004 and
+   Acc/A +0.020, widths 0.93-1.05.
+2. **The table's absolute scale is NOT arbitrary.** sigma_Born and the
+   inelastic tail scale with the table; the exclusive tail (`tai[1]`, MAID) is
+   added in absolute units and does not. So the scale sets the exclusive tail's
+   share of the RC factor. The producer's comment claiming the constant
+   "cancels in every RC factor" was wrong. **A table built without a luminosity
+   effectively switches the exclusive tail off.** `MakePhiTable` now takes an
+   optional `luminosity` (events per nb; default 1 = arbitrary units, recorded
+   as such in the table). For real data this needs the acceptance correction,
+   the integrated luminosity, and a decision on per-nucleon normalisation for
+   the nuclear targets (MAID is a free-proton model).
+3. **phi in the cell volume is now in radians.** HAPRAD's sigma is per radian
+   of phi_h: at x = 0.2, Q2 = 2, z = 0.5, pt2 = 0.2 its B0 is 36 nb/GeV^2,
+   against a rough leading-order estimate of ~11 per radian and ~0.2 per degree.
+   Degrees would have put a factor 57 into the absolute scale.
 
 ---
 
@@ -425,6 +473,7 @@ centroid path are superseded by the weights and can be retired.
 | Acceptance maps | Phase 1 onward, for real numbers | `acc_corr` in `clas12-rge-analysis` produces them; needs simulation |
 | Full dataset | Phase 1 binning choice, Phase 5 | `runs_all.txt` lists 384 runs; 1 is processed locally |
 | Target separation | Phase 1 | RG-E constants hold only a global `vz` window (-40, 26.12 cm); per-target windows for the LD2 cell vs the solid foil are still to be defined |
+| Luminosity | absolute table scale, hence the exclusive tail (Phase 1) | integrated charge and target areal density per run; for nuclear targets, also a per-nucleon convention to match MAID's free proton |
 | Nuclear corrections beyond the SFs | Phase 5 | the exclusive tail (MAID is free-proton), Coulomb distortion (`RGE_RC_CC` already exists), and external radiation in the target. Whether they matter depends on whether the observable is a ratio in which they cancel — a call for the professor |
 
 ## Order of work

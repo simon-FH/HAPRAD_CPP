@@ -20,11 +20,16 @@
 //
 // The measured cross section, in HAPRAD's variables (x, y, z, pt2, phi), is the
 // fitted yield times the Jacobian from the binning variables,
-// |d(Q2, nu)/d(x, y)| = 2 M E nu, over the cell volume -- up to a constant
-// (luminosity, ...) that cancels in every RC factor. Defined this way,
-// whatever K's formula is cancels in the calculation: tested in PLAN.md 2.3
-// by replacing it and seeing no change. It requires the conversion to use the
-// real beam energy (PLAN.md 2.3, Finding 2).
+// |d(Q2, nu)/d(x, y)| = 2 M E nu, over the cell volume (phi in radians, as in
+// HAPRAD's sigma) and the luminosity. Defined this way, whatever K's formula is
+// cancels in the calculation: tested in PLAN.md 2.3 by replacing it and seeing
+// no change. It requires the conversion to use the real beam energy (PLAN.md
+// 2.3, Finding 2). Checked end to end by validation/closure_normalisation.py.
+//
+// The overall scale does NOT cancel in the RC factor: sigma_Born and the
+// inelastic tail scale with the table, the exclusive tail (MAID) does not. With
+// `luminosity` unset (1) the table is in arbitrary units and the exclusive
+// tail's share of the correction is wrong by that factor.
 //
 // The table is written with pt_scaling = "reduced" (Ac/pt, Acc/pt^2) and
 // interpolation = "log", per PLAN.md 0.2 and 2.3.
@@ -68,6 +73,8 @@ struct Config {
   Double_t lo[5], hi[5];
   Int_t fitMinPhiBins;
   Double_t fitMinEvents;
+  std::string weightBranch;  // empty: every event counts 1
+  Double_t lumi;             // events per nb of cross section; 1 = arbitrary units
 };
 
 bool LoadConfig(const char* path, Config& c) {
@@ -96,6 +103,12 @@ bool LoadConfig(const char* path, Config& c) {
   c.vzmax = cf.read<Double_t>("vz_max", 1e9);
   c.fitMinPhiBins = cf.read<Int_t>("fit_min_phi_bins", 4);
   c.fitMinEvents = cf.read<Double_t>("fit_min_events", 50.);
+  c.weightBranch = cf.read<std::string>("weight_branch", "");
+  c.lumi = cf.read<Double_t>("luminosity", 1.);
+  if (!(c.lumi > 0.)) {
+    fprintf(stderr, "luminosity must be positive\n");
+    return false;
+  }
   for (Int_t d = 0; d < 5; ++d) {
     std::istringstream b(cf.read<std::string>(kBinKey[d]));
     if (!(b >> c.n[d] >> c.lo[d] >> c.hi[d]) || c.n[d] < 1 || !(c.hi[d] > c.lo[d])) {
@@ -128,7 +141,7 @@ int Fill(const Config& c, const char* outPath, int nIn, char** in) {
     sources += TString(in[i]) + "\n";
   }
 
-  Float_t pid, Eb, Q2, nu, yb, W2, zh, pt2, phi, theta, vz;
+  Float_t pid, Eb, Q2, nu, yb, W2, zh, pt2, phi, theta, vz, w = 1.f;
   struct B { const char* name; Float_t* v; } br[] = {
       {"pid", &pid}, {"E_beam", &Eb}, {"Q2", &Q2}, {"nu", &nu}, {"y_bjorken", &yb}, {"W2", &W2},
       {"z_h", &zh}, {"p_T2", &pt2}, {"phi_PQ", &phi}, {"theta_PQ", &theta}, {"vz", &vz}};
@@ -137,6 +150,15 @@ int Fill(const Config& c, const char* outPath, int nIn, char** in) {
     chain.SetBranchStatus(b.name, 1);
     if (chain.SetBranchAddress(b.name, b.v) < 0) {
       fprintf(stderr, "input lacks branch %s\n", b.name);
+      return 1;
+    }
+  }
+  // Optional per-event weight -- e.g. 1/acceptance, or a cross section in a
+  // closure test. Any overall scale: the fit uses the cell's mean weight.
+  if (!c.weightBranch.empty()) {
+    chain.SetBranchStatus(c.weightBranch.c_str(), 1);
+    if (chain.SetBranchAddress(c.weightBranch.c_str(), &w) < 0) {
+      fprintf(stderr, "input lacks weight branch %s\n", c.weightBranch.c_str());
       return 1;
     }
   }
@@ -182,7 +204,7 @@ int Fill(const Config& c, const char* outPath, int nIn, char** in) {
       if (v[d] < c.lo[d] || v[d] >= c.hi[d]) inside = false;
     if (!inside) continue;
     flow.Fill(s++);
-    counts.Fill(v);
+    counts.Fill(v, w);
   }
 
   TFile out(outPath, "RECREATE");
@@ -323,12 +345,13 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
   std::vector<Double_t> phiC(nphi);
   for (Int_t k = 0; k < nphi; ++k) phiC[k] = counts->GetAxis(4)->GetBinCenter(k + 1) / 180. * TMath::Pi();
   const Double_t phiWidth = (c.hi[4] - c.lo[4]) / nphi / 180. * TMath::Pi();
+  const Double_t s1 = std::sin(phiWidth / 2.) / (phiWidth / 2.), s2 = std::sin(phiWidth) / phiWidth;
 
-  // The binning volume of a 5-D cell, and the Jacobian |d(Q2, nu)/d(x, y)| =
-  // 2 M E nu that turns a yield density in the binning variables into one in
-  // HAPRAD's variables.
-  Double_t vol = 1.;
-  for (Int_t d = 0; d < 5; ++d) vol *= (c.hi[d] - c.lo[d]) / c.n[d];
+  // The binning volume of a 5-D cell, phi in radians, and the Jacobian
+  // |d(Q2, nu)/d(x, y)| = 2 M E nu that turns a yield density in the binning
+  // variables into one in HAPRAD's variables.
+  Double_t vol = phiWidth;
+  for (Int_t d = 0; d < 4; ++d) vol *= (c.hi[d] - c.lo[d]) / c.n[d];
 
   Long64_t nCells = 0, nEmpty = 0, nSparse = 0, nNegative = 0, nNoK = 0, nBuilt = 0;
   Int_t idx5[5], idx4[4];
@@ -338,16 +361,15 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
         for (idx4[3] = 1; idx4[3] <= n4[3]; ++idx4[3]) {
           ++nCells;
           std::vector<Double_t> y(nphi), var(nphi);
-          Double_t total = 0.;
+          Double_t total = 0., total2 = 0.;
           Int_t filled = 0;
           for (Int_t d = 0; d < 4; ++d) idx5[d] = idx4[d];
           for (Int_t k = 0; k < nphi; ++k) {
             idx5[4] = k + 1;
             const Long64_t b = counts->GetBin(idx5);
             y[k] = counts->GetBinContent(b);
-            // Poisson variance; an empty bin is 0 +- 1, not 0 +- 0.
-            var[k] = std::max(counts->GetBinError2(b), 1.);
             total += y[k];
+            total2 += counts->GetBinError2(b);
             if (y[k] > 0.) ++filled;
           }
           if (total == 0.) {
@@ -359,8 +381,26 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
             ++nSparse;
             continue;
           }
+          // Variances from the fitted prediction, not from each bin's own
+          // content: with data-derived variances, bins that fluctuate low get
+          // small errors and pull the fit down, by about 1/n for n events per
+          // phi bin (validation/closure_normalisation.py). r = sum w^2 / sum w is
+          // the cell's mean event weight (1 for unweighted events), so a bin
+          // expecting mu has variance r * mu; the floor of one event keeps
+          // empty and near-empty bins from dominating. Start flat, iterate.
+          const Double_t r = total2 / total;
+          for (Int_t k = 0; k < nphi; ++k) var[k] = r * std::max(total / nphi, r);
           Double_t p[3], cov[3][3], chi2;
-          if (!FitHarmonics(phiC, phiWidth, y, var, p, cov, chi2)) {
+          bool ok = true;
+          for (Int_t it = 0; ok && it < 4; ++it) {
+            if (it > 0)
+              for (Int_t k = 0; k < nphi; ++k) {
+                const Double_t mu = p[0] + p[1] * s1 * std::cos(phiC[k]) + p[2] * s2 * std::cos(2. * phiC[k]);
+                var[k] = r * std::max(mu, r);
+              }
+            ok = FitHarmonics(phiC, phiWidth, y, var, p, cov, chi2);
+          }
+          if (!ok) {
             ++nSparse;
             continue;
           }
@@ -377,9 +417,8 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
             ++nNoK;
             continue;
           }
-          // yield -> cross section in (x, y, z, pt2, phi), up to a constant;
-          // then divide by K.
-          const Double_t s = 2. * kMassProton * c.E * nu / vol / k;
+          // yield -> cross section in (x, y, z, pt2, phi); then divide by K.
+          const Double_t s = 2. * kMassProton * c.E * nu / vol / c.lumi / k;
           const Double_t pt = std::sqrt(pt2);
           A->SetBinContent(idx4, p[0] * s);
           Ac->SetBinContent(idx4, p[1] * s / pt);
@@ -404,9 +443,12 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
   TNamed("interpolation", "log").Write();
   TNamed("acceptance_corrected", "no").Write();
   TNamed("normalisation",
-         "A = (fitted yield harmonic) x 2 M E nu / (5-D cell volume) / K(cell centre), "
-         "K = sigma_Born / A of TRadCor at the beam energy. Valid only if TStructFunctionArray "
-         "converts with the real beam energy (PLAN.md 2.3, Finding 2).")
+         "A = (fitted yield harmonic) x 2 M E nu / (5-D cell volume, phi in rad) / luminosity / "
+         "K(cell centre), K = sigma_Born / A of TRadCor at the beam energy. Valid only if "
+         "TStructFunctionArray converts with the real beam energy (PLAN.md 2.3, Finding 2).")
+      .Write();
+  TNamed("luminosity", c.lumi == 1. ? "1 (arbitrary units: the exclusive tail is NOT on the same scale)"
+                                    : Form("%.10g events/nb", c.lumi))
       .Write();
   TNamed("beam_energy", Form("%.6g", c.E)).Write();
   TNamed("config", c.text.c_str()).Write();
