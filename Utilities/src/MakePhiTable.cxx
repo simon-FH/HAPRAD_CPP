@@ -3,9 +3,12 @@
 //
 // Two stages, so the expensive one runs on the cluster:
 //
-//   MakePhiTable fill <config> <counts.root> <ntuple files or globs ...>
+//   MakePhiTable fill <config> <counts.root> [--rc-friend DIR] <ntuple files or globs ...>
 //       Applies the cuts and fills 5-D counts in (Q2, nu, z, pt2, phi).
 //       Each job can take any subset of the files; outputs merge with `hadd`.
+//       --rc-friend: multiply each event's weight by RC.w from ApplyRC's friend
+//       of that file, DIR/<name>_rc.root for <name>.root -- the RC-corrected
+//       table of the next iteration (PLAN.md Phase 4).
 //
 //   MakePhiTable fit <config> <counts.root> <table.root>
 //       Fits A + Ac cos(phi) + Acc cos(2 phi) in every 4-D cell and writes the
@@ -48,6 +51,7 @@
 #include "TMath.h"
 #include "TNamed.h"
 #include "TString.h"
+#include "TTree.h"
 
 #include <cmath>
 #include <cstdio>
@@ -65,12 +69,43 @@ using rge::Config;
 using rge::LoadConfig;
 const char* const* kAxis = rge::kTableAxis;
 
-int Fill(const Config& c, const char* outPath, int nIn, char** in) {
+// ApplyRC's friend of an input file: DIR/<name>_rc.root for .../<name>.root.
+std::string FriendPath(const std::string& dir, const std::string& input) {
+  std::string base = input.substr(input.find_last_of('/') + 1);
+  if (base.size() > 5 && base.compare(base.size() - 5, 5, ".root") == 0) base.resize(base.size() - 5);
+  return dir + "/" + base + "_rc.root";
+}
+
+Long64_t Entries(const std::string& file, const char* tree) {
+  std::unique_ptr<TFile> f(TFile::Open(file.c_str(), "READ"));
+  if (!f || f->IsZombie()) return -1;
+  TTree* t = f->Get<TTree>(tree);
+  return t ? t->GetEntries() : -1;
+}
+
+int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, int nIn, char** in) {
   TChain chain("DT");
   TString sources;
   for (int i = 0; i < nIn; ++i) {
     chain.Add(in[i]);
     sources += TString(in[i]) + "\n";
+  }
+  // RC weights from the previous iteration, one friend file per input file. A
+  // friend chain lines up entry by entry only if every file pair does: checked.
+  TChain rcChain("RC");
+  if (!rcFriendDir.empty()) {
+    sources = "";
+    for (TObject* el : *chain.GetListOfFiles()) {
+      const std::string file = el->GetTitle(), fr = FriendPath(rcFriendDir, file);
+      const Long64_t nData = Entries(file, "DT"), nRC = Entries(fr, "RC");
+      if (nRC < 0 || nRC != nData) {
+        fprintf(stderr, "%s: %s (DT has %lld entries, RC %lld)\n", file.c_str(),
+                nRC < 0 ? "no RC friend" : "RC friend does not line up", nData, nRC);
+        return 1;
+      }
+      rcChain.Add(fr.c_str());
+      sources += TString(file) + "  x RC.w from " + fr + "\n";
+    }
   }
 
   rge::Event e;
@@ -82,6 +117,22 @@ int Fill(const Config& c, const char* outPath, int nIn, char** in) {
     chain.SetBranchStatus(c.weightBranch.c_str(), 1);
     if (chain.SetBranchAddress(c.weightBranch.c_str(), &w) < 0) {
       fprintf(stderr, "input lacks weight branch %s\n", c.weightBranch.c_str());
+      return 1;
+    }
+  }
+  Float_t wRC = 1.f;
+  if (!rcFriendDir.empty()) {
+    rcChain.SetBranchStatus("*", 0);
+    rcChain.SetBranchStatus("w", 1);
+    if (rcChain.SetBranchAddress("w", &wRC) < 0) {
+      fprintf(stderr, "RC friends lack branch w\n");
+      return 1;
+    }
+    // Read in lockstep rather than as a TChain friend: the main chain's
+    // SetBranchStatus("*", 0) is re-applied to friends on every file change,
+    // which switched w off (the weights came out exactly 1).
+    if (rcChain.GetEntries() != chain.GetEntries()) {
+      fprintf(stderr, "RC friends have %lld entries, the inputs %lld\n", rcChain.GetEntries(), chain.GetEntries());
       return 1;
     }
   }
@@ -109,7 +160,8 @@ int Fill(const Config& c, const char* outPath, int nIn, char** in) {
       if (v[d] < c.lo[d] || v[d] >= c.hi[d]) inside = false;
     if (!inside) continue;
     flow.Fill(rge::kNStages);
-    counts.Fill(v, w);
+    if (!rcFriendDir.empty()) rcChain.GetEntry(i);
+    counts.Fill(v, w * wRC);
   }
 
   TFile out(outPath, "RECREATE");
@@ -282,7 +334,10 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
             continue;
           }
           nev->SetBinContent(idx4, total);
-          if (filled < c.fitMinPhiBins || total < c.fitMinEvents) {
+          // Effective number of events, (sum w)^2 / sum w^2: the event count
+          // for unweighted data, and independent of the weights' scale.
+          const Double_t nEff = total2 > 0. ? total * total / total2 : 0.;
+          if (filled < c.fitMinPhiBins || nEff < c.fitMinEvents) {
             ++nSparse;
             continue;
           }
@@ -364,7 +419,7 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
   printf("%s\n", outPath);
   printf("  4-D cells                     %8lld\n", nCells);
   printf("    no events                   %8lld\n", nEmpty);
-  printf("    too sparse to fit           %8lld   (< %d filled phi bins or < %g events)\n", nSparse, c.fitMinPhiBins,
+  printf("    too sparse to fit           %8lld   (< %d filled phi bins or < %g effective events)\n", nSparse, c.fitMinPhiBins,
          c.fitMinEvents);
   printf("    fitted A <= 0               %8lld\n", nNegative);
   printf("    HAPRAD rejects the centre   %8lld\n", nNoK);
@@ -378,7 +433,17 @@ int main(int argc, char** argv) {
   if (argc >= 5 && std::string(argv[1]) == "fill") {
     Config c;
     if (!LoadConfig(argv[2], c)) return 1;
-    return Fill(c, argv[3], argc - 4, argv + 4);
+    std::string rcFriendDir;
+    int first = 4;
+    if (std::string(argv[4]) == "--rc-friend") {
+      if (argc < 7) {
+        fprintf(stderr, "--rc-friend needs a directory and at least one input file\n");
+        return 2;
+      }
+      rcFriendDir = argv[5];
+      first = 6;
+    }
+    return Fill(c, argv[3], rcFriendDir, argc - first, argv + first);
   }
   if (argc == 5 && std::string(argv[1]) == "fit") {
     Config c;
@@ -386,7 +451,7 @@ int main(int argc, char** argv) {
     return Fit(c, argv[3], argv[4]);
   }
   fprintf(stderr,
-          "usage: MakePhiTable fill <config> <counts.root> <ntuple files or globs ...>\n"
+          "usage: MakePhiTable fill <config> <counts.root> [--rc-friend DIR] <ntuple files or globs ...>\n"
           "       MakePhiTable fit  <config> <counts.root> <table.root>\n"
           "Counts from several fill jobs merge with `hadd`.\n");
   return 2;
