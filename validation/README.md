@@ -104,6 +104,20 @@ cell average / model (bin-centring), and producer / true cell average
 (`MakePhiTable` alone). Expected: the last is 1 for A, and 1 within errors for
 Ac/A and Acc/A, flat in every variable. 3M events take about 4 minutes.
 
+### Iteration closure (PLAN.md Phase 4)
+
+```bash
+./closure_iteration.py [n_events] [--iterations 4] [--jobs N] [--keep DIR]
+```
+
+Toy pions weighted by HAPRAD 2.0's Born cross section give a true table T_B
+(`MakePhiTable`) and its RC grid; the same events weighted by Born x RC are the
+"observed" data, and `Utilities/rc_iterate.py` runs on them. T_B is an exact
+fixed point of the loop and the events are the same throughout, so the
+distance of table_k from T_B and of grid_k from the true grid measures the
+convergence alone. About 12 minutes for 2M events and 4 iterations on 14
+cores (six RC grids of 5,250 nodes).
+
 ## The tiers
 
 They are ordered so that a failure in one invalidates the ones below it.

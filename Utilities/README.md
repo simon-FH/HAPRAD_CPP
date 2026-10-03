@@ -68,6 +68,24 @@ dt->Draw("Q2", "RC.w * (RC.selected && RC.rc_status <= 1)");
   support, 1 partial, 2 outside the grid, 3 none, 4 other particle or beam),
   `rc_cover`, `selected` (passes the config's cuts).
 
+## rc_iterate.py -- the RC iteration (CLAS12)
+
+HAPRAD needs Born-level amplitudes; the data give observed ones. The loop
+removes the difference:
+
+```bash
+./rc_iterate.py config/rge_pip.cfg work_LD2/ "/path/to/run/*_ntuples_dc.root" [--max-iter 4] [--tol 0.002]
+```
+
+Iteration 0 builds the table from the data as they are; iteration k fills it
+with the RC weights of iteration k-1 (`MakePhiTable fill --rc-friend DIR`,
+which multiplies in `RC.w` from `DIR/<name>_rc.root` for each input
+`<name>.root`, on top of any `weight_branch`). It stops when the RC factor
+changes by less than `--tol` at 95% of the grid nodes; the last iteration's
+`friends/` hold the weights for the analysis. Run it per target. Each iteration
+costs one RC grid; `--resume` keeps what is already there.
+`validation/closure_iteration.py` is its closure test.
+
 ## The EG2 chain (CLAS6)
 
 The programs below are the original EG2 analysis chain.

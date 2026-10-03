@@ -504,6 +504,56 @@ table_k  ->  RC grid_k  ->  weights_k  ->  table_{k+1} from RC-corrected data
 
 **Done when:** the loop converges on run 020026.
 
+**Loop built and closed on a toy; the real-data run waits for acceptance and
+the full dataset.** `Utilities/rc_iterate.py` runs fill -> fit -> RC grid ->
+ApplyRC per iteration. Iteration k fills the table with
+`MakePhiTable fill --rc-friend <iteration k-1>/friends`, which multiplies each
+event's weight by `RC.w` from its friend file (on top of any `weight_branch`,
+so acceptance x RC composes). It stops when the RC factor changes by less than
+`--tol` (default 0.002) at 95% of the grid nodes -- the 95th percentile, not
+the maximum, because a few nodes at the edge of the table's coverage move more
+and would hold the loop up.
+
+**Closure** (`validation/closure_iteration.py`, 2M toy pions, 12 minutes): a
+true Born table T_B and its RC grid from events weighted by HAPRAD 2.0's Born
+cross section; the same events times RC_true as the "observed" data; the loop
+started from them. T_B is an exact fixed point and the events never change, so
+this measures convergence alone:
+
+| iteration | table A vs truth, median / 95% | Ac/A, Acc/A difference, 95% | RC grid vs truth, median / 95% / max |
+|---|---|---|---|
+| 0 (observed data) | 7.0% / 13.8% | 0.13, 0.045 | 2.2e-3 / 1.1e-2 / 0.16 |
+| 1 | 0.37% / 1.4% | 0.014, 0.006 | 4.4e-5 / 7.3e-4 / 0.025 |
+| 2 | 0.014% / 0.13% | 1.7e-3, 9.6e-4 | 1.9e-6 / 7.9e-5 / 4.0e-3 |
+| 3 | 0.0009% / 0.016% | 2.2e-4, 1.3e-4 | 1.0e-7 / 9.4e-6 / 6.2e-4 |
+
+* **Geometric convergence, a factor 10-20 per iteration**, in the table and in
+  the RC factor alike, with the same 1,249 cells fitted throughout.
+* **The RC factor depends only weakly on the table.** Even from the
+  uncorrected table (k = 0) it is within 1.1% of the truth at 95% of the nodes;
+  one iteration brings that to 0.07%. The amplitudes themselves move more
+  (7% -> 0.4%), which matters for anything that uses the table directly.
+* With the default tolerance the loop stops after iteration 1 (the change
+  between 0 and 1 is 6.9e-4 at 95%), when the RC factor is within 7e-4 of the
+  truth at 95% of the nodes. The change between iterations is about 10x the
+  remaining error, so the criterion is conservative.
+
+Also in this step:
+* `fill`'s minimum-events threshold now uses the effective number of events,
+  (sum w)^2 / sum w^2, instead of sum w: the event count for unweighted data
+  (output unchanged), independent of the weights' scale, and stable across
+  iterations. For acceptance weights >> 1, sum w would have meant nothing.
+* `MakeRCGrid compare` gives the change between two grids.
+* Reading `RC.w` as a TChain friend silently failed -- the main chain's
+  `SetBranchStatus("*", 0)` is re-applied to friends on every file change, and
+  every weight came out 1. `fill` reads the RC chain in lockstep instead, and
+  checks file by file that the entries line up.
+
+**Why not run 020026 itself:** one run fills 1,120 of the config grid's
+138,240 cells, so most RC grid nodes would fall in empty table cells and the
+loop would measure the table's coverage, not its convergence. The real-data run belongs
+with acceptance-corrected data from the full dataset, on the cluster.
+
 ---
 
 ## Phase 5 — Production

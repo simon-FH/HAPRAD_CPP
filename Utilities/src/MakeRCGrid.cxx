@@ -3,6 +3,7 @@
 //   MakeRCGrid run   <config> <table.root> <chunk> <nchunks> <grid_chunk.root>
 //   hadd grid.root grid_chunk*.root
 //   MakeRCGrid check <config> <grid.root> <table.root> <n> <chunk> <nchunks> <ntuple files ...>
+//   MakeRCGrid compare <gridA.root> <gridB.root>
 //
 // `run` evaluates every nchunks-th node, starting at `chunk` -- interleaved, so
 // chunks cost about the same. One HAPRAD call takes ~0.5 s; run_rc_grid.sh
@@ -13,6 +14,11 @@
 // (fixed seed, so every chunk sees the same sample), calls HAPRAD directly at
 // each one's own kinematics, and prints that next to the interpolated grid.
 // check_rc_grid.py runs the chunks and summarises.
+//
+// `compare` is the convergence measure of the RC iteration (rc_iterate.py):
+// the change of the RC factor without the exclusive tail, r_vr + r_in, over the
+// nodes valid in both grids. It prints one machine-readable line,
+//   @compare <nodes> <max |d|> <median |d|> <95% |d|> <mean d> <valid in one only>
 //
 // The grid belongs to ONE table: every iteration of the RC loop needs a new one.
 
@@ -30,6 +36,7 @@
 #include "TRandom3.h"
 #include "TStopwatch.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -231,11 +238,57 @@ int Check(const Config& c, const char* gridPath, const char* tablePath, Long64_t
   return 0;
 }
 
+int Compare(const char* pathA, const char* pathB) {
+  std::unique_ptr<TFile> fa(TFile::Open(pathA, "READ")), fb(TFile::Open(pathB, "READ"));
+  if (!fa || fa->IsZombie() || !fb || fb->IsZombie()) {
+    fprintf(stderr, "cannot open %s or %s\n", pathA, pathB);
+    return 1;
+  }
+  const char* names[3] = {"valid", "r_vr", "r_in"};
+  THnD *a[3], *b[3];
+  for (Int_t k = 0; k < 3; ++k) {
+    a[k] = fa->Get<THnD>(names[k]);
+    b[k] = fb->Get<THnD>(names[k]);
+    if (!a[k] || !b[k] || a[k]->GetNbins() != b[k]->GetNbins()) {
+      fprintf(stderr, "%s and %s are not RC grids on the same nodes\n", pathA, pathB);
+      return 1;
+    }
+  }
+  for (Int_t d = 0; d < 5; ++d)
+    if (a[0]->GetAxis(d)->GetNbins() != b[0]->GetAxis(d)->GetNbins() ||
+        std::fabs(a[0]->GetAxis(d)->GetXmin() - b[0]->GetAxis(d)->GetXmin()) > 1e-9 ||
+        std::fabs(a[0]->GetAxis(d)->GetXmax() - b[0]->GetAxis(d)->GetXmax()) > 1e-9) {
+      fprintf(stderr, "%s and %s have different nodes\n", pathA, pathB);
+      return 1;
+    }
+  std::vector<Double_t> diff;
+  Long64_t oneOnly = 0;
+  Double_t sum = 0.;
+  for (Long64_t i = 0; i < a[0]->GetNbins(); ++i) {
+    const bool va = a[0]->GetBinContent(i) > 0.5, vb = b[0]->GetBinContent(i) > 0.5;
+    if (va != vb) ++oneOnly;
+    if (!va || !vb) continue;
+    const Double_t d = (b[1]->GetBinContent(i) + b[2]->GetBinContent(i)) - (a[1]->GetBinContent(i) + a[2]->GetBinContent(i));
+    diff.push_back(std::fabs(d));
+    sum += d;
+  }
+  if (diff.empty()) {
+    fprintf(stderr, "no node is valid in both grids\n");
+    return 1;
+  }
+  const Double_t mean = sum / diff.size();
+  std::sort(diff.begin(), diff.end());
+  auto q = [&](Double_t f) { return diff[std::min(diff.size() - 1, size_t(f * (diff.size() - 1) + 0.5))]; };
+  printf("@compare %zu %.6g %.6g %.6g %+.6g %lld\n", diff.size(), diff.back(), q(0.5), q(0.95), mean, oneOnly);
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   const std::string mode = argc > 1 ? argv[1] : "";
   SetErrorHandler(CountGSLWarnings);
+  if (mode == "compare" && argc == 4) return Compare(argv[2], argv[3]);
   Config c;
   if ((mode == "run" && argc == 7) || (mode == "check" && argc >= 9)) {
     if (!rge::LoadConfig(argv[2], c)) return 1;
@@ -269,6 +322,7 @@ int main(int argc, char** argv) {
   fprintf(stderr,
           "usage: MakeRCGrid run   <config> <table.root> <chunk> <nchunks> <grid_chunk.root>\n"
           "       MakeRCGrid check <config> <grid.root> <table.root> <n> <chunk> <nchunks> <ntuple files ...>\n"
+          "       MakeRCGrid compare <gridA.root> <gridB.root>\n"
           "Chunks of `run` merge with `hadd`; run_rc_grid.sh does both.\n");
   return 2;
 }
