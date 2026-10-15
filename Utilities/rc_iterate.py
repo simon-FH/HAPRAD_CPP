@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The radiative-correction iteration (PLAN.md Phase 4).
+"""The radiative-correction iteration.
 
     table_k -> RC grid_k -> weights_k -> table_k+1 from the RC-corrected data
 
@@ -34,6 +34,7 @@ BIN = os.path.join(HERE, "bin")
 
 
 def run(cmd, log, **kw):
+    """Run cmd with stdout and stderr to the file `log`; exit on failure."""
     with open(log, "w") as f:
         r = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True, **kw)
     if r.returncode:
@@ -41,11 +42,15 @@ def run(cmd, log, **kw):
 
 
 def friend_name(path):
+    """The RC friend's file name for an input: <name>_rc.root for <name>.root,
+    the name MakePhiTable's --rc-friend looks for."""
     base = os.path.basename(path)
     return (base[:-5] if base.endswith(".root") else base) + "_rc.root"
 
 
 def compare(a, b):
+    """Change of r_vr + r_in from grid a to grid b, as parsed from the
+    `@compare` line of `MakeRCGrid compare`."""
     r = subprocess.run([os.path.join(BIN, "MakeRCGrid"), "compare", a, b], capture_output=True, text=True)
     line = [l for l in r.stdout.splitlines() if l.startswith("@compare")]
     if r.returncode or not line:
@@ -56,6 +61,10 @@ def compare(a, b):
 
 
 def main():
+    """Per iteration k: fill the counts (with the RC friends of iteration k-1
+    after the first), fit the table, build its RC grid, write an RC friend for
+    every input file, and compare the grid with the previous one. Steps whose
+    output exists are skipped with --resume. Returns 0 once converged."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("config")
     ap.add_argument("workdir")

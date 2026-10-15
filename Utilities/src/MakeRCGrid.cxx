@@ -1,4 +1,6 @@
-// MakeRCGrid -- HAPRAD on a grid of nodes, for weighting events (PLAN.md Phase 3).
+// MakeRCGrid -- HAPRAD evaluated on a regular grid of nodes in (Q2, nu, z, pt,
+// phi), from which ApplyRC interpolates an RC factor for every event; plus the
+// check of that interpolation and the comparison of two grids.
 //
 //   MakeRCGrid run   <config> <table.root> <chunk> <nchunks> <grid_chunk.root>
 //   hadd grid.root grid_chunk*.root
@@ -60,9 +62,10 @@ const Double_t kMx2Threshold = (kMassNeutron + kMassPion) * (kMassNeutron + kMas
 const Double_t kPtMin = 1e-3;
 
 // GSL's "failed to reach tolerance" from the inner integrals arrives through
-// ROOT's error handler, hundreds of times per HAPRAD call (also at the test
-// points that converge in Tier 3). Printed, it would run to gigabytes over a
-// grid; it is counted instead, per node.
+// ROOT's error handler, hundreds of times per HAPRAD call, also at points
+// whose result agrees with the FORTRAN. Printed, it would run to gigabytes over
+// a grid; it is counted instead, per node. Every other message goes to ROOT's
+// default handler.
 Long64_t gIntegratorWarnings = 0;
 void CountGSLWarnings(int level, Bool_t abort, const char* location, const char* msg) {
   if (location && std::string(location).find("GSLError") != std::string::npos) {
@@ -72,6 +75,9 @@ void CountGSLWarnings(int level, Bool_t abort, const char* location, const char*
   DefaultErrorHandler(level, abort, location, msg);
 }
 
+// What one HAPRAD call gives: whether the node is kinematically allowed,
+// whether HAPRAD returned a finite result, sigma_Born and the three ratios
+// r_vr, r_in, r_ex (RCGrid.hxx), and the table-lookup diagnostics.
 struct Result {
   bool physical = false, valid = false;
   Double_t sib = 0., r[3] = {0., 0., 0.};
@@ -79,7 +85,11 @@ struct Result {
   Long64_t warnings = 0;              // integrator warnings during the call
 };
 
-// One HAPRAD call, with the library's per-call printout swallowed.
+// One HAPRAD call at (Q2, nu, z, pt, phi[deg]), with the library's per-call
+// printout swallowed. Kinematically forbidden points (x >= 1, nu >= E, W below
+// the pion threshold, E_h <= m_pi, pt beyond the hadron momentum) are not sent
+// to HAPRAD. pt is raised to kPtMin. The ratios are formed only for a positive,
+// finite sigma_Born.
 Result Evaluate(TRadCor& rc, const Config& c, Double_t Q2, Double_t nu, Double_t z, Double_t pt, Double_t phi) {
   Result res;
   const Double_t M = kMassProton, m = kMassPion;
@@ -113,6 +123,9 @@ Result Evaluate(TRadCor& rc, const Config& c, Double_t Q2, Double_t nu, Double_t
   return res;
 }
 
+// The table's "luminosity" key, copied into the grid so that ApplyRC can tell
+// whether the exclusive tail is on the table's scale. Tables without the key
+// (not made by MakePhiTable, e.g. model tables) are absolute.
 std::string TableLuminosity(const char* tablePath) {
   std::unique_ptr<TFile> f(TFile::Open(tablePath, "READ"));
   if (!f || f->IsZombie()) return "";
@@ -120,6 +133,12 @@ std::string TableLuminosity(const char* tablePath) {
   return t ? t->GetTitle() : "absent (not a MakePhiTable table; taken as absolute)";
 }
 
+// The `run` mode: evaluate nodes chunk, chunk + nChunks, ... and write their
+// results into one-bin-per-node histograms (RCGrid.hxx). Every node of the
+// chunk is marked in "computed", valid or not, so that the merge can be
+// checked for completeness. Per node it also stores the fractions of table
+// lookups that were out of range, empty or second-neighbour, and the number of
+// integrator warnings.
 int Run(const Config& c, const char* tablePath, Long64_t chunk, Long64_t nChunks, const char* outPath) {
   const rge::RCNodes g(c);
   TRadCor rc;
@@ -184,6 +203,10 @@ int Run(const Config& c, const char* tablePath, Long64_t chunk, Long64_t nChunks
   return 0;
 }
 
+// The `check` mode: draw a reservoir sample of n selected events inside the
+// grid, then for every nChunks-th one (starting at `chunk`) print the
+// interpolated ratios next to a direct HAPRAD call at the event's kinematics,
+// one "@" line per event.
 int Check(const Config& c, const char* gridPath, const char* tablePath, Long64_t n, Long64_t chunk, Long64_t nChunks,
           int nIn, char** in) {
   rge::RCGrid grid;
@@ -202,8 +225,9 @@ int Check(const Config& c, const char* gridPath, const char* tablePath, Long64_t
   rge::Event e;
   if (!rge::BindEvent(chain, e)) return 1;
 
-  // Reservoir sample of selected events inside the grid: the same sample in
-  // every chunk.
+  // Reservoir sample of selected events inside the grid (each event replaces
+  // a random member with probability n / seen), with a fixed seed: the same
+  // sample in every chunk.
   std::vector<rge::Event> sample;
   TRandom3 rng(4357);
   Long64_t seen = 0;
@@ -241,6 +265,9 @@ int Check(const Config& c, const char* gridPath, const char* tablePath, Long64_t
   return 0;
 }
 
+// The `compare` mode: over the nodes valid in both grids, the change d of
+// r_vr + r_in from grid A to grid B; prints the count, max, median and 95th
+// percentile of |d|, the mean d, and the number of nodes valid in only one.
 int Compare(const char* pathA, const char* pathB) {
   std::unique_ptr<TFile> fa(TFile::Open(pathA, "READ")), fb(TFile::Open(pathB, "READ"));
   if (!fa || fa->IsZombie() || !fb || fb->IsZombie()) {
@@ -288,6 +315,9 @@ int Compare(const char* pathA, const char* pathB) {
 
 }  // namespace
 
+// Parse the mode and its arguments, install the GSL-warning counter, check
+// that the config has an RC grid and that the MAID file is reachable, then
+// dispatch.
 int main(int argc, char** argv) {
   const std::string mode = argc > 1 ? argv[1] : "";
   SetErrorHandler(CountGSLWarnings);

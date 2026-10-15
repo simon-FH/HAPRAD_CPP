@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Normalisation closure for MakePhiTable (PLAN.md Phase 1).
+"""Normalisation closure for MakePhiTable.
 
 Events uniform in the binning variables, weighted by HAPRAD 2.0's Born cross
 section times |d(x,y)/d(Q2,nu)|, are a cross-section measurement with a known
@@ -142,10 +142,14 @@ void cmp(const char* prod, const char* model, const char* events, const char* mh
 
 
 def run(cmd, **kw):
+    """Run cmd, raising on failure; output captured as text."""
     return subprocess.run(cmd, check=True, capture_output=True, text=True, **kw)
 
 
 def main():
+    """Make the weighted events once; then for 4^4, 6^4 and 8^4 grids build the
+    producer table and the model table and print the comparison macro's
+    summary."""
     n = sys.argv[1] if len(sys.argv) > 1 else "3000000"
     tmpdir = tempfile.TemporaryDirectory(prefix="normclosure_")  # removed when main() returns
     tmp = tmpdir.name

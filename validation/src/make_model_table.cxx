@@ -1,19 +1,19 @@
 // make_model_table -- build a structure-function table from HAPRAD 2.0's own
-// PDF x FF model, for PLAN.md Phase 2.3.
+// PDF x FF model.
 //
-// Tier 3 compares the C++ against the FORTRAN, but the two normally use
-// different physics: the C++ a table of measured amplitudes, the FORTRAN its
-// built-in model. A table made FROM that model puts the same physics under both,
-// so whatever Tier 3 then reports is a defect or an approximation in the C++
-// chain -- table discretisation, interpolation, or the inversion at shifted
-// kinematics.
+// compare.py's Tier 3 compares the C++ against the FORTRAN, but the two
+// normally use different physics: the C++ a table of measured amplitudes, the
+// FORTRAN its built-in model. A table made FROM that model puts the same
+// physics under both, so whatever Tier 3 then reports is a defect or an
+// approximation in the C++ chain -- table discretisation, interpolation, or the
+// inversion at shifted kinematics.
 //
 // How the table is made. The C++ Born cross section is linear in the amplitudes,
 //
 //     sigma_Born(phi) = K(kinematics) * (A + Ac cos(phi) + Acc cos(2 phi)),
 //
-// (the A/Ac/Acc -> H1..H4 round trip already showed this), and the FORTRAN Born
-// is exactly B0 + Bc cos(phi) + Bcc cos(2 phi). So at each cell centre:
+// (each amplitude enters the structure functions linearly), and the FORTRAN
+// Born is exactly B0 + Bc cos(phi) + Bcc cos(2 phi). So at each cell centre:
 //
 //     A = B0 / K,   Ac / p_t = Bc / (K p_t),   Acc / p_t^2 = Bcc / (K p_t^2)
 //
@@ -59,11 +59,13 @@ struct Binning {
 
 const char* kAxisNames[4] = {"Q2", "nu", "z", "pt2"};
 
+// Parse "nQ2:lo:hi,nnu:lo:hi,nz:lo:hi,npt2:lo:hi"; false if malformed.
 bool ParseBins(const char* spec, Binning& b) {
   return std::sscanf(spec, "%d:%lf:%lf,%d:%lf:%lf,%d:%lf:%lf,%d:%lf:%lf", &b.n[0], &b.lo[0], &b.hi[0], &b.n[1], &b.lo[1],
                      &b.hi[1], &b.n[2], &b.lo[2], &b.hi[2], &b.n[3], &b.lo[3], &b.hi[3]) == 12;
 }
 
+// Centre of bin i (1-based) on axis d.
 Double_t Centre(const Binning& b, Int_t d, Int_t i) { return b.lo[d] + (i - 0.5) * (b.hi[d] - b.lo[d]) / b.n[d]; }
 
 // THadronKinematics prints a line per evaluation; keep it off the terminal.
@@ -74,12 +76,15 @@ struct MuteCout {
   ~MuteCout() { std::cout.rdbuf(saved); }
 };
 
+// An empty 4-D table with axes named as TSemiInclusiveModel expects.
 std::unique_ptr<THnD> NewTable(const char* name, const Binning& b) {
   std::unique_ptr<THnD> h(new THnD(name, name, 4, b.n, b.lo, b.hi));
   for (Int_t d = 0; d < 4; ++d) h->GetAxis(d)->SetName(kAxisNames[d]);
   return h;
 }
 
+// The `points` step: print every kinematically possible cell centre in the
+// input format of born_harmonics (cell indices, E, x, Q2, z, p_t).
 int Points(const Binning& b, Double_t E) {
   for (Int_t i0 = 1; i0 <= b.n[0]; ++i0)
     for (Int_t i1 = 1; i1 <= b.n[1]; ++i1)
@@ -94,6 +99,11 @@ int Points(const Binning& b, Double_t E) {
   return 0;
 }
 
+// The `build` step: read the FORTRAN harmonics per cell, compute K at each
+// centre with a unit table, write A = B0/K, Ac = Bc/(K p_t), Acc = Bcc/(K p_t^2)
+// as a reduced table, then reload it and check that the C++ Born reproduces
+// the FORTRAN harmonics at four angles per cell. Returns 1 if the worst
+// relative difference exceeds 1e-4.
 int Build(const Binning& b, Double_t E, const char* harmPath, const char* outPath) {
   // FORTRAN harmonics, keyed by cell. PDFLIB prints a banner to stdout, so keep
   // only lines that parse as data.
@@ -232,6 +242,7 @@ int Build(const Binning& b, Double_t E, const char* harmPath, const char* outPat
 
 }  // namespace
 
+// Dispatch to the `points` or `build` step; anything else prints the usage.
 int main(int argc, char** argv) {
   Binning b;
   if (argc >= 4 && std::string(argv[1]) == "points" && ParseBins(argv[2], b)) return Points(b, std::atof(argv[3]));

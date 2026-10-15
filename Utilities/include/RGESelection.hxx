@@ -1,8 +1,13 @@
 // RGESelection.hxx -- the analysis configuration and event selection shared by
 // MakePhiTable, MakeRCGrid and ApplyRC.
 //
-// One config file (config/rge_pip.cfg) drives all three, so the table, the RC
-// grid and the weights cannot disagree on beam energy, particle or cuts.
+// Holds: the axis names of the structure-function table and of the RC grid;
+// Config and LoadConfig(), which parse the analysis config file; Mx2(), the
+// missing mass from ntuple quantities; Event and BindEvent(), which bind the
+// branches of the RG-E `DT` ntuple; and Stages(), the event selection.
+//
+// One config file drives all three programs, so the table, the RC grid and
+// the weights cannot disagree on beam energy, particle or cuts.
 
 #ifndef RGESELECTION_HXX
 #define RGESELECTION_HXX
@@ -51,6 +56,11 @@ struct Config {
   bool rcExclusiveTail;  // include the exclusive tail in the weight
 };
 
+// Read the config file at `path` into `c`, keeping its verbatim text in
+// c.text. Keys without a default (beam_energy, Mx_min, the bins_* keys) are
+// required. The rc_nodes_* keys are optional as a group: if rc_nodes_Q2 is
+// present all five must be. Returns false, with a message, on a missing or
+// malformed key.
 inline bool LoadConfig(const char* path, Config& c) {
   std::ifstream in(path);
   if (!in) {
@@ -112,9 +122,11 @@ inline bool LoadConfig(const char* path, Config& c) {
   return true;
 }
 
-// M_x^2 = (P + q - p_h)^2 from quantities in the ntuple. The hadron is taken to
-// be a pion; the result matched HAPRAD's own missing-mass rejections exactly
-// on run 020026 (PLAN.md 0.1).
+// M_x^2 = (P + q - p_h)^2 from quantities in the ntuple, with the target at
+// rest and the hadron taken to be a pion:
+//   M_x^2 = W^2 + m^2 - 2 (M + nu) E_h + 2 |q| |p_h| cos(theta_PQ),
+// with E_h = z nu and |q| = sqrt(nu^2 + Q2). It reproduces HAPRAD's own
+// missing-mass rejections exactly on run 020026.
 inline Double_t Mx2(Double_t W2, Double_t nu, Double_t Q2, Double_t zh, Double_t thetaPQ) {
   const Double_t m = kMassPion, M = kMassProton;
   const Double_t Eh = zh * nu;
@@ -150,7 +162,9 @@ inline bool BindEvent(TChain& chain, Event& e) {
 const char* const kStage[] = {"read", "pid", "beam energy", "Q2", "W2", "y", "z", "pt2", "vertex", "missing mass"};
 const Int_t kNStages = sizeof(kStage) / sizeof(kStage[0]);
 
-// How many stages the event survives: 1 (read only) .. kNStages (selected).
+// How many stages of kStage the event passes: 1 (read only) .. kNStages
+// (selected). Each cut is applied only if all earlier ones passed, so the
+// result also says which cut rejected the event.
 inline Int_t Stages(const Config& c, const Event& e) {
   Int_t s = 1;
   if (Int_t(e.pid) != c.pid) return s;

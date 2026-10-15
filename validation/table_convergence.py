@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""How fine must the structure-function table be?  (PLAN.md Phase 2.3)
+"""How fine must the structure-function table be?
 
 Builds tables from HAPRAD 2.0's own PDF x FF model at several resolutions,
 runs the C++ with each, and compares against the full FORTRAN calculation at
@@ -44,6 +44,7 @@ KEYS = ("sib", "tai_in", "f1", "f2")
 
 
 def at(binary, point, env=None):
+    """Run a point driver at E and `point`; return its RES block as a dict."""
     cmd = [os.path.join(BIN, binary), "%.10g" % E] + ["%.10g" % v for v in point]
     out = subprocess.run(cmd, capture_output=True, text=True, cwd=DATA,
                          env=env, timeout=3600).stdout
@@ -58,6 +59,9 @@ def at(binary, point, env=None):
 
 
 def build_table(spec, path):
+    """Tabulate HAPRAD 2.0's model on grid `spec` into `path`: cell centres
+    (make_model_table points) -> Born harmonics (born_harmonics) -> table
+    (make_model_table build)."""
     cells = subprocess.run([os.path.join(BIN, "make_model_table"), "points", spec, str(E)],
                            capture_output=True, text=True, check=True).stdout
     harm = subprocess.run([os.path.join(BIN, "born_harmonics")], input=cells,
@@ -73,6 +77,8 @@ def build_table(spec, path):
 
 
 def main():
+    """Run the FORTRAN once per point, then the C++ with a table of each grid,
+    and print the worst relative difference of each quantity per grid."""
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--grid", action="append", help="extra grid spec(s) to try")
@@ -105,7 +111,7 @@ def main():
         print("  %-26s" % label + "".join("%11.2e" % w[k] for k in KEYS))
     print()
     print("sib is pure table interpolation (the codes agree to 1.6e-6 at cell centres).")
-    print("f1/f2 also carry the H11 floor -- exp(delta_inf) vs the linear form --")
+    print("f1/f2 also carry a floor from exp(delta_inf) vs the FORTRAN's linear form,")
     print("measured at 0.2-0.4% of sigma_obs/sigma_Born at these points.")
 
 

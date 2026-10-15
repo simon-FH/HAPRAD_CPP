@@ -1,4 +1,6 @@
-// ApplyRC -- radiative-correction weights for RG-E events (PLAN.md Phase 3).
+// ApplyRC -- radiative-correction weights for RG-E events: for every entry of
+// an ntuple, the RC factor interpolated in an RC grid (RCGrid.hxx) and the
+// weight 1 / rc, written as a friend tree.
 //
 //   ApplyRC <config> <grid.root> <ntuple.root> <friend.root>
 //
@@ -21,8 +23,8 @@
 //
 // rc includes the exclusive tail (times Z/A, `target_naz`) only with
 // `rc_exclusive_tail = yes`, which is refused for a table in arbitrary units:
-// the tail would be on the wrong scale (PLAN.md Phase 1). The grid must come
-// from the same config -- beam energy and particle are checked.
+// the tail is an absolute cross section and would be on the wrong scale. The
+// grid must come from the same config -- its beam energy is checked.
 //
 // One input file per call keeps the friend aligned entry by entry; run one job
 // per file on the cluster.
@@ -39,6 +41,9 @@
 #include <cstdio>
 #include <string>
 
+// Load config and grid and check that they agree; then, entry by entry, place
+// the event in the grid's variables, interpolate the three ratios, combine
+// them into rc and w, and fill the friend tree. Prints a summary by rc_status.
 int main(int argc, char** argv) {
   if (argc != 5) {
     fprintf(stderr, "usage: ApplyRC <config> <grid.root> <ntuple.root> <friend.root>\n");
@@ -65,6 +70,7 @@ int main(int argc, char** argv) {
             grid.Info("table_luminosity").c_str());
     return 1;
   }
+  // Coefficient of r_ex in rc: Z/A when the exclusive tail is included, else 0.
   const Double_t exScale = c.rcExclusiveTail ? c.targetNAZ : 0.;
 
   TChain chain("DT");
@@ -92,6 +98,7 @@ int main(int argc, char** argv) {
   const Long64_t n = chain.GetEntries();
   for (Long64_t i = 0; i < n; ++i) {
     chain.GetEntry(i);
+    // Every branch starts at 0, the value for an event with no RC factor.
     rc = rcNoEx = w = cover = 0.f;
     selected = rge::Stages(c, e) == rge::kNStages;
     if (Int_t(e.pid) != c.pid || std::fabs(e.Eb - c.E) > c.Etol) {
@@ -129,6 +136,6 @@ int main(int argc, char** argv) {
   printf("  %-22s %12s %12s\n", "rc_status", "all", "selected");
   for (Int_t s = 0; s < 5; ++s) printf("  %d %-20s %12lld %12lld\n", s, label[s], count[s], selectedByStatus[s]);
   if (!absolute)
-    printf("  NOTE: the table is in arbitrary units, so rc leaves out the exclusive tail (PLAN.md Phase 1).\n");
+    printf("  NOTE: the table is in arbitrary units, so rc leaves out the exclusive tail.\n");
   return 0;
 }

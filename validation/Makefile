@@ -9,6 +9,10 @@
 #                   code the C++ was ported from. It needs PDFLIB (PDFSET,
 #                   STRUCTM) for its PDF x FF semi-inclusive model, so it is
 #                   built only when CERN_LIB points at a libpdflib804.
+# born_harmonics -- HAPRAD 2.0's Born harmonics on a grid (needs CERN_LIB too),
+#                   read by make_model_table.
+# The other C++ programs build tables and toy events for the closure tests;
+# each source file says what it does.
 
 .PHONY: all clean compare
 .DEFAULT_GOAL := all
@@ -48,10 +52,10 @@ endif
 CXXTARGETS := $(filter-out $(BIN)/haprad2_point $(BIN)/born_harmonics,$(TARGETS))
 $(CXXTARGETS): $(wildcard $(TOP)/*.h)
 
-# For tabulating HAPRAD 2.0's model (PLAN.md 2.3): the same objects, but with
-# the unconditional `stop` at semi_inclusive_model.f:178 removed, so the cap
-# the authors wrote immediately after it takes effect instead of aborting the
-# run. The reference used by haprad2_point is not touched.
+# For tabulating HAPRAD 2.0's model (born_harmonics): the same objects, but
+# with the unconditional `stop` at semi_inclusive_model.f:178 removed, so the
+# cap the authors wrote immediately after it takes effect instead of aborting
+# the run. The reference used by haprad2_point is not touched.
 F2TABOBJ   := $(filter-out $(OBJ)/semi_inclusive_model.o,$(F2OBJ)) $(OBJ)/semi_inclusive_model_nostop.o
 
 # Both codes open their data files from the current working directory:

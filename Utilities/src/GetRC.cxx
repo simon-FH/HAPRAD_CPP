@@ -94,10 +94,8 @@ int main(int argc, char **argv) {
     // NOTE: phi is passed in DEGREES. EG2 ntuples store PhiPQ in degrees, but
     // RG-E stores phi_PQ in RADIANS -- convert at the source, or every angle
     // silently shrinks by a factor of 180/pi.
+    // GetFactor1/3 return 0 for a rejected point or a non-finite factor.
     rc.CalculateRCFactor(gBeamEnergy, xb_centroid[i], q2_centroid[i], zh_centroid[i], pt_centroid[i], phi_centroid[i], m, NAZ);
-    // GetFactor1/3 now return 0 rather than inf or NaN, so the old guard --
-    // IsNaN plus a comparison against a deliberately constructed 1/0 -- is no
-    // longer needed. It also missed overflow to a huge finite value.
     f1 = rc.GetFactor1();
     f3 = rc.GetFactor3();
     // if any of the centroids is zero, null the rc factor

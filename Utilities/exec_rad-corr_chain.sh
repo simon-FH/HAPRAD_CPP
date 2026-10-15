@@ -89,13 +89,10 @@ for tar in "${targets[@]}"; do
     # (final step)
     # get radiative correction factors.
     #
-    # The structure-function amplitudes now come from a table file, loaded at
-    # run time (see TSemiInclusiveModel.h). This used to source the integrated
-    # fit from FitPhiPQ, sed the three constants into TStructFunctionArray.cxx,
-    # recompile, run, and sed them back out. Those constants made sigma_Born
-    # independent of z and p_t (hurdle H1) and caused the phi = 180 pole (H4).
-    # The per-cell producer is PLAN.md Phase 1; until it exists, supply tables
-    # by hand as ${SI_TABLE_DIR}/newphihist_<target>.root.
+    # The structure-function amplitudes come from a table file loaded at run
+    # time (format in TSemiInclusiveModel.h; MakePhiTable produces one). It is
+    # looked for as ${SI_TABLE_DIR}/newphihist_<target>.root; the target is
+    # skipped if it is absent.
     table="${SI_TABLE_DIR:-${HAPRAD_CPP}/Utilities}/newphihist_${tar}.root"
     if [[ -f "${table}" ]]; then
         ./bin/GetRC -t${tar} -e${BEAM_ENERGY:-5.015} -m"${table}"

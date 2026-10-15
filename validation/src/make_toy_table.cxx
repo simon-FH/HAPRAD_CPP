@@ -1,12 +1,13 @@
 // make_toy_table -- write a structure-function table with KNOWN amplitudes, in
 // the format TSemiInclusiveModel reads (see TSemiInclusiveModel.h).
 //
-// For testing the consumer before any real table exists: the amplitudes are
-// smooth analytic functions, so what HAPRAD gets back can be checked against
-// what went in.
+// For testing the reader and the structure-function inversion independently of
+// data: the amplitudes are smooth analytic functions, so what HAPRAD gets back
+// can be checked against what went in.
 //
-// Variables follow PLAN.md 0.3 -- (Q2, nu, z, pt2), the ones RG-E's acc_corr
-// bins in -- so the same acceptance map can serve both.
+// Axes are (Q2, nu, z, pt2), the variables RG-E's acceptance correction is
+// binned in. A 9 x 8 x 10 x 6 grid, every cell fitted; `reduced` (default)
+// stores Ac/p_t and Acc/p_t^2, `raw` stores Ac and Acc at the cell centre.
 //
 // usage: make_toy_table <out.root> [raw|reduced]
 
@@ -34,6 +35,7 @@ double ToyAccOverPt2(double Q2, double nu, double z, double pt2) { return 0.05 /
 
 }  // namespace
 
+// Fill every cell with the toy amplitudes at its centre and write the table.
 int main(int argc, char** argv) {
   if (argc < 2) {
     fprintf(stderr, "usage: make_toy_table <out.root> [raw|reduced]\n");

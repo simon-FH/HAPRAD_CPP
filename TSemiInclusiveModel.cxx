@@ -11,8 +11,17 @@
 #include <cmath>
 #include <iostream>
 
+//______________________________________________________________________________
+//
+// Lookup of the measured azimuthal amplitudes A, Ac, Acc in a 4-D table read
+// from a ROOT file: loading and validating the table, building the filled copy
+// used for second neighbours, and the multilinear interpolation at one point.
+// The table format and the interpolation rules are described in
+// TSemiInclusiveModel.h.
+
 namespace {
 
+// True if the two axes have the same number of bins and identical bin edges.
 Bool_t SameAxis(const TAxis* a, const TAxis* b) {
   if (a->GetNbins() != b->GetNbins()) return false;
   for (Int_t i = 1; i <= a->GetNbins() + 1; ++i)
@@ -20,6 +29,7 @@ Bool_t SameAxis(const TAxis* a, const TAxis* b) {
   return true;
 }
 
+// True if the two histograms have the same dimension and identical axes.
 Bool_t SameBinning(const THnD* a, const THnD* b) {
   if (a->GetNdimensions() != b->GetNdimensions()) return false;
   for (Int_t d = 0; d < a->GetNdimensions(); ++d)
@@ -44,6 +54,7 @@ TSemiInclusiveModel::TSemiInclusiveModel()
 
 TSemiInclusiveModel::~TSemiInclusiveModel() {}
 
+// Drop the loaded table and its filled copy, back to the unloaded state.
 void TSemiInclusiveModel::Clear() {
   fPath.clear();
   fA.reset();
@@ -67,6 +78,11 @@ void TSemiInclusiveModel::ResetCounters() const {
 }
 
 Bool_t TSemiInclusiveModel::Load(const char* path) {
+  // Read and validate the table at `path`: A, Ac and Acc must be 4-D THnDs
+  // with identical binning (as must the optional "fitted" map), every axis
+  // name must be a known variable, and the optional "pt_scaling" and
+  // "interpolation" keys must hold a known value. Nothing is kept unless all
+  // checks pass. On success, the filled copy for second neighbours is built.
   Clear();
   ResetCounters();
 
@@ -161,6 +177,8 @@ void TSemiInclusiveModel::BuildSecondNeighbours() {
   // unfitted cell gets the average of the fitted cells in the 3x3x3x3 block
   // around it, weighted by 1 / (squared distance in cells). Averaged in log A
   // and the ratios Ac/A, Acc/A for a log table, as the interpolation does.
+  // fFillOk marks the cells of the copy that hold a value: the fitted ones and
+  // the unfitted ones with at least one fitted neighbour.
   fFillA.reset(static_cast<THnD*>(fA->Clone("A_second")));
   fFillAc.reset(static_cast<THnD*>(fAc->Clone("Ac_second")));
   fFillAcc.reset(static_cast<THnD*>(fAcc->Clone("Acc_second")));
@@ -181,6 +199,9 @@ void TSemiInclusiveModel::BuildSecondNeighbours() {
             fFillOk[bin] = 1;
             continue;
           }
+          // Visit the 3^4 = 81 offsets in {-1, 0, 1}^4: k is decoded in base 3,
+          // one digit per axis. The centre (dist2 == 0) and cells beyond the
+          // table edges are skipped.
           Double_t sw = 0., sA = 0., sAc = 0., sAcc = 0.;
           for (Int_t k = 0; k < 81; ++k) {
             Int_t m = k, dist2 = 0;
@@ -218,6 +239,17 @@ void TSemiInclusiveModel::BuildSecondNeighbours() {
 
 void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Double_t Z, Double_t pt2, Double_t mx2,
                                    Double_t /*pl*/, Double_t& A, Double_t& Ac, Double_t& Acc) const {
+  // Interpolate the amplitudes at one point:
+  //   1. reject unphysical kinematics (x or z outside [0, 1], or a missing
+  //      mass below the pion threshold);
+  //   2. per axis, find the two cell centres bracketing the point and the
+  //      linear weight of the upper one (clamped beyond the outer centres);
+  //   3. sum the 2^4 corners with their weights, skipping unfitted cells and
+  //      renormalising by the weight that remains;
+  //   4. if no corner was usable, repeat step 3 in the filled copy;
+  //   5. undo the log/ratio form, and multiply Ac, Acc by p_t, p_t^2 for a
+  //      reduced table.
+  //
   // Every early return leaves the amplitudes at zero, never at whatever the
   // caller's stack held -- the same convention as strf() in ihaprad.f.
   A = 0.;
@@ -280,7 +312,10 @@ void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Doub
   }
   if (outside) ++fNOutOfRange;
 
-  // Sum over the 2^4 corners, dropping unusable ones and renormalising.
+  // Sum over the 2^4 corners, dropping unusable ones and renormalising. Bit d
+  // of `corner` chooses the lower or upper cell on axis d. A corner is usable
+  // if `usable` marks it (filled copy) or, when `usable` is null, if it is
+  // fitted; for a log table A must also be positive.
   Double_t sumW = 0., sA = 0., sAc = 0., sAcc = 0.;
   auto corners = [&](const THnD* tA, const THnD* tAc, const THnD* tAcc, const std::vector<char>* usable) {
     Int_t idx[4];
@@ -314,12 +349,12 @@ void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Doub
     }
   };
   corners(fA.get(), fAc.get(), fAcc.get(), nullptr);
-  // Second neighbours (decision of the port's author, October 2026): when none
-  // of the 16 surrounding cell centres is fitted, interpolate the same way in
-  // the filled copy of the table built at Load(), in which every unfitted cell
-  // holds the average of the fitted cells next to it. Seen from the point this
-  // reaches the second ring of cells; it stays continuous, which the inner R
-  // integral needs, and costs no more than an ordinary lookup.
+  // Second neighbours: when none of the 16 surrounding cell centres is fitted,
+  // interpolate the same way in the filled copy of the table built at Load(),
+  // in which every unfitted cell holds the average of the fitted cells next to
+  // it. Seen from the point this reaches the second ring of cells; it stays
+  // continuous, which the inner R integral needs, and costs no more than an
+  // ordinary lookup.
   if (sumW <= 0. && fSecondNeighbours && fFillA) {
     corners(fFillA.get(), fFillAc.get(), fFillAcc.get(), &fFillOk);
     if (sumW > 0.) ++fNSecondNeighbour;

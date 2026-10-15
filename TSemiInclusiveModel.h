@@ -51,9 +51,9 @@
 //                           In the Born cross section Ac ~ p_t and Acc ~ p_t^2.
 //                           A raw table returns a non-zero constant across the
 //                           lowest p_t cell, and TStructFunctionArray divides
-//                           by p_t and p_t^2 -- that is the phi = 180 pole of
-//                           hurdle H4. A reduced table vanishes with the right
-//                           power and avoids it.
+//                           by p_t and p_t^2, which diverges where the shifted
+//                           p_t reaches zero (at phi = 180 deg). A reduced
+//                           table vanishes with the right power and avoids it.
 //
 // INTERPOLATION
 //
@@ -61,10 +61,10 @@
 //   centres -- the stored quantity, i.e. Ac/p_t and Acc/p_t^2 for a reduced
 //   table, before the p_t factors are applied. A nearest-cell lookup makes the
 //   integrand piecewise constant, and the non-adaptive Gauss-Kronrod rule used
-//   for the inner R integral (TRV2LN) cannot converge across those steps: with
-//   a toy table it reported thousands of tolerance failures per call, against
-//   none for a table with no steps. SetInterpolation(false) restores the
-//   nearest-cell behaviour, for comparison only.
+//   for the inner R integral (TRV2LN) cannot converge across those steps (with
+//   a toy table, thousands of tolerance failures per call, against none for a
+//   smooth one). SetInterpolation(false) selects the nearest-cell lookup, for
+//   comparison only.
 //
 // OUT-OF-RANGE AND EMPTY CELLS
 //
@@ -79,9 +79,9 @@
 //   an ordinary lookup (counted as NSecondNeighbour). Only if the filled copy
 //   has no usable corner either are the amplitudes zero and the point counted
 //   as empty.
-//   Both are counted because the tail integrals sample shifted kinematics well
-//   outside any measured region, and the size of that effect has to be known
-//   before deciding what to do about it.
+//   The counters exist because the tail integrals sample shifted kinematics
+//   well outside the measured region; they show how much of an RC factor rests
+//   on clamped, filled or missing table values.
 
 class TSemiInclusiveModel {
  public:
@@ -98,11 +98,15 @@ class TSemiInclusiveModel {
 
   void SetInterpolation(Bool_t on) { fInterpolate = on; }
   Bool_t GetInterpolation() const { return fInterpolate; }
-  // On by default; off restores the behaviour before October 2026, for comparison.
+  // Second-neighbour fallback for points with no fitted corner (see above). On
+  // by default; off leaves such points empty, for comparison.
   void SetSecondNeighbours(Bool_t on) { fSecondNeighbours = on; }
   Bool_t GetSecondNeighbours() const { return fSecondNeighbours; }
 
-  // Same argument list as the original free function. Y and pl are unused.
+  // Interpolate A, Ac and Acc at one kinematic point (the variables named by
+  // the table's axes are taken from q2, X, Z, pt2 and mx2, with nu derived from
+  // q2 and X). Same argument list as the original free function; Y and pl are
+  // unused. Updates the diagnostic counters below.
   void Evaluate(Double_t q2, Double_t X, Double_t Y, Double_t Z, Double_t pt2, Double_t mx2, Double_t pl, Double_t& A,
                 Double_t& Ac, Double_t& Acc) const;
 
@@ -118,6 +122,8 @@ class TSemiInclusiveModel {
   enum EVariable { kQ2, kX, kNu, kZ, kPt, kPt2 };
 
   void Clear();
+  // Build fFillA/fFillAc/fFillAcc/fFillOk: the filled copy of the table used
+  // for second neighbours. Called at the end of Load().
   void BuildSecondNeighbours();
 
   std::string fPath;

@@ -35,10 +35,17 @@ TStructFunctionArray::~TStructFunctionArray() {
 void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
   using namespace TMath;
 
-  // strf() in ihaprad.f opens by zeroing sfm(1..8); do the same. Degenerate
-  // shifted kinematics must contribute nothing, and TPODINL constructs a fresh
-  // TStructFunctionArray for every single integrand evaluation, so anything
-  // left unassigned here is read back as uninitialised stack.
+  // Fill fArray with the four structure-function combinations h1..h4 at the
+  // kinematics shifted by the emission of a photon with invariants (tau, mu, R),
+  // as strf() does in ihaprad.f:
+  //   1. shift Q2, nu, t, p_x^2, and from them x, z, p_l, p_t^2;
+  //   2. look up the measured amplitudes A, Ac, Acc at the shifted point;
+  //   3. convert them to the structure functions H1z..H4z;
+  //   4. combine those into h1..h4, the form the radiative integrands use.
+  //
+  // Start from zero, as strf() zeroes sfm(1..8): degenerate shifted kinematics
+  // contribute nothing, and a fresh object is built for every integrand
+  // evaluation, so an unassigned entry would be uninitialised stack.
   for (Int_t i = 0; i < 4; ++i) fArray[i] = 0.;
 
   const Double_t &M = kMassProton;
@@ -81,9 +88,8 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
     Double_t tldE = 0.5 * (tldNu + Sqrt(SQ(tldNu) + 4 * a));
     Double_t tldY = tldNu / tldE;
 
-    // Measured azimuthal amplitudes at the (shifted) kinematics of this
-    // evaluation. These were three uninitialised doubles, filled only by an
-    // external script that sed-substituted constants into this file.
+    // Measured azimuthal amplitudes at the shifted kinematics, interpolated in
+    // the loaded table; all zero (no contribution) when no table is loaded.
     Double_t A = 0., Ac = 0., Acc = 0.;
     if (fModel) fModel->Evaluate(tldQ2, tldX, tldY, tldZ, tldPt2, tldPx2, tldPl, A, Ac, Acc);
 
@@ -96,15 +102,15 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
     Double_t tldLambda = fInv->S() * tldXg * tldQ2 - SQ(M * tldQ2);  // electron part is ignored: m_e*lamndaQ
     Double_t LambdaRatio = tldLq / tldLambda;
     Double_t RelH1H2 = (1. + 4. * SQ(M * tldX) / tldQ2) / 2. / tldX / (1 + rlt);
-    // The equivalent beam energy tldE above (the electron energy that would give
-    // the shifted Q2 and nu at the same scattering angle) is HAPRAD 2.0's
-    // (ihaprad.f:1023-1025). There it reaches only the cos(phi) and cos(2 phi)
-    // terms of the model, through y; H1 and H2 never depend on it. Doing the
-    // same here (decision of the port's author, October 2026): H3 and H4 keep
-    // the equivalent y, H1 and H2 -- the conversion of A, which the table
-    // defines with the real beam energy -- use the real one. Applying tldY to
-    // all four put the inelastic tail 0.006-0.019 in eta away from the FORTRAN
-    // with identical physics; this way it is 0.000-0.010 (PLAN.md 2.3).
+    // Two values of y enter the conversion, as in HAPRAD 2.0:
+    //  - H3z and H4z (the cos phi and cos 2phi terms) use tldY = tldNu / tldE,
+    //    with tldE the equivalent beam energy above: the electron energy that
+    //    would give the shifted Q2 and nu at the same scattering angle
+    //    (ihaprad.f:1023-1025). In the FORTRAN this is the only place it acts.
+    //  - H2z and H1z (the conversion of A) use the real beam energy, through
+    //    tldYReal = tldNu / E, because the table defines A with it.
+    // Using tldY for all four moves the inelastic tail 0.006-0.019 in eta away
+    // from the FORTRAN with otherwise identical physics.
     Double_t N = SQ(tldQ2) * Sqrt(tldQ2 + SQ(tldY)) / SQ(tldY);
     Double_t tldYReal = tldNu / fKin->E();
     Double_t NReal = SQ(tldQ2) * Sqrt(tldQ2 + SQ(tldYReal)) / SQ(tldYReal);
@@ -132,20 +138,18 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
     // PDFs x FFs), so it stays regular here.
     //
     // The guard above admits tldPt2 == 0 (it tests >= 0), and there H4z is
-    // infinite while the h_i combine it as tldPt2 * H4z, i.e. 0 * inf = NaN.
-    // That NaN propagated all the way out through the tau and R integrals and
-    // poisoned the whole inelastic tail. It is reachable in practice: at
-    // phi_h = 180 deg the shifted p_t passes exactly through zero somewhere in
-    // the integration domain.
+    // infinite while the h_i combine it as tldPt2 * H4z, i.e. 0 * inf = NaN,
+    // which would propagate through the tau and R integrals into the whole
+    // inelastic tail. It happens in practice: at phi_h = 180 deg the shifted
+    // p_t passes exactly through zero somewhere in the integration domain.
     //
-    // Treat any degenerate evaluation as no contribution, which is what strf()
-    // does for tldPt2 < 0 and is the only defensible reading -- these are
-    // isolated points of the integration domain, not a region.
+    // A non-finite evaluation therefore contributes nothing, as strf() does
+    // for tldPt2 < 0; these are isolated points of the domain, not a region.
     //
-    // Note this is a robustness fix, not a physics one: the 1/p_t^2 blow-up is
-    // an artifact of feeding this inversion azimuthal amplitudes that do not
-    // carry their proper p_t dependence (see hurdle H1). A model in which
-    // A_c ~ p_t and A_cc ~ p_t^2 keeps H3z and H4z finite.
+    // This guards against a numerical artifact, not a physical effect: the
+    // 1/p_t^2 blow-up appears when the amplitudes fed to the inversion lack
+    // their proper p_t dependence. With A_c ~ p_t and A_cc ~ p_t^2, H3z and
+    // H4z stay finite.
     if (Finite(h1) && Finite(h2) && Finite(h3) && Finite(h4)) {
       fArray[0] = h1;
       fArray[1] = h2;

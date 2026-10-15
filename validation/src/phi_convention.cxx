@@ -56,12 +56,14 @@ double HapradV1(double E, double x, double Q2, double z, double pt, double phi_d
   return had.V1();
 }
 
+// The q-quantile of v (NaN if empty).
 double Quantile(std::vector<double> v, double q) {
   if (v.empty()) return NAN;
   std::sort(v.begin(), v.end());
   return v[std::min(v.size() - 1, size_t(q * v.size()))];
 }
 
+// Fraction of v below cut (NaN if empty).
 double FractionBelow(const std::vector<double>& v, double cut) {
   if (v.empty()) return NAN;
   return double(std::count_if(v.begin(), v.end(), [cut](double d) { return d < cut; })) / v.size();
@@ -69,6 +71,10 @@ double FractionBelow(const std::vector<double>& v, double cut) {
 
 }  // namespace
 
+// For every forward pi+ passing the DIS cuts: V1 from the four-vectors, and
+// HAPRAD's V1 at phi_PQ and at phi_PQ + 180 deg. Prints how often each
+// hypothesis agrees, how much the two hypotheses differ (the sensitivity), and
+// why HAPRAD rejected the points it rejected.
 int main(int argc, char** argv) {
   if (argc < 2) {
     fprintf(stderr, "usage: phi_convention \"<file glob>\" [max_entries]\n");

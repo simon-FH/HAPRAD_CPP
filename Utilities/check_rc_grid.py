@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interpolation error budget of an RC grid (PLAN.md Phase 3).
+"""Interpolation error budget of an RC grid.
 
 Samples selected events, calls HAPRAD directly at each one's own kinematics
 (MakeRCGrid check, in parallel chunks) and compares with the grid's
@@ -30,11 +30,14 @@ MAKERCGRID = os.path.join(HERE, "bin", "MakeRCGrid")
 
 
 def quantile(v, q):
+    """The q-quantile of v (nearest rank); nan for an empty list."""
     v = sorted(v)
     return v[min(len(v) - 1, int(q * (len(v) - 1) + 0.5))] if v else float("nan")
 
 
 def describe(rel):
+    """One table row for a list of relative errors: count, mean, and the
+    median, 68%, 95% and maximum of their absolute values, in percent."""
     a = [abs(x) for x in rel]
     if not a:
         return "     --"
@@ -44,6 +47,9 @@ def describe(rel):
 
 
 def main():
+    """Run `MakeRCGrid check` in --jobs parallel chunks from the MAID data
+    directory, collect the "@" lines, form the relative errors of rc_noex and
+    rc_ex for every event, and print the summaries."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("config")
     ap.add_argument("grid")
@@ -72,6 +78,7 @@ def main():
     with ThreadPoolExecutor(args.jobs) as pool:
         lines = [l for part in pool.map(chunk, range(args.jobs)) for l in part]
 
+    # "@ id Q2 nu z pt phi status cover  r_vr r_in r_ex (interp)  r_vr r_in r_ex (direct)"
     pts, nodirect = [], 0
     for l in lines:
         f = l.split()
@@ -100,6 +107,8 @@ def main():
         print("%-28s %s" % (label, describe([p["noex"] for p in pts if sel(p)])))
     print("%-28s %s" % ("rc_ex (naz=%g), all" % args.naz, describe([p["ex"] for p in pts])))
 
+    # Per variable: split its observed range into 6 equal bins and show the
+    # mean and 68% |error| in each, to see along which axis the grid is too coarse.
     names = ["Q2", "nu", "z", "pt", "phi"]
     print("\nrc_noex, full support: mean / 68%|.| of the relative error per bin of each variable")
     full = [p for p in pts if p["status"] == 0]

@@ -1,6 +1,7 @@
 #!/bin/bash
-# run_rc_grid.sh -- build an RC grid in parallel chunks and merge them
-# (PLAN.md Phase 3).
+# run_rc_grid.sh -- build an RC grid in parallel chunks and merge them: runs
+# `MakeRCGrid run` once per chunk with xargs, then `hadd`s the chunk files into
+# <grid.root> and prints each chunk's summary line.
 #
 #   ./run_rc_grid.sh <config> <table.root> <grid.root> [jobs, default: all cores]
 #

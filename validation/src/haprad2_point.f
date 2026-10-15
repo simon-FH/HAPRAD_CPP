@@ -110,7 +110,7 @@ C        /phi/
       ENDIF
       WRITE (*,'(a)') '### END KIN'
 
-C     Tier 2 diagnostic: dump the exclusive-tail integrand rv2tr(ta, phik) on
+C     Diagnostic: dump the exclusive-tail integrand rv2tr(ta, phik) on
 C     the same grid the C++ driver uses, so the two can be compared pointwise.
 C     rv2tr is the FUNCTION defined in ihaprad.f; the COMMON blocks it reads
 C     have been filled by the ihaprad call above.

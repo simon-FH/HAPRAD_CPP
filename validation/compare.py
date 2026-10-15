@@ -1,28 +1,34 @@
 #!/usr/bin/env python3
 """Validation harness for HAPRAD_CPP.
 
-Three layers, because they fail differently and in a useful order:
+Runs kinematic points through the C++ driver (bin/rc_point) and the HAPRAD
+2.0 Fortran driver (bin/haprad2_point), and checks them in four tiers, which
+fail differently and in a useful order:
 
   Tier 0  self-consistency of the C++ code alone. Properties that must hold
-          under ANY structure-function model, so they stay meaningful while the
-          model is still missing (hurdle H1).
+          under ANY structure-function model. Checks that need a non-zero
+          sigma_Born are skipped when no table is given (--table).
 
   Tier 1  kinematics vs the original HAPRAD 2.0 Fortran. Lorentz invariants and
           hadron kinematics are model-independent, so the two codes should agree
           to machine precision. A failure here invalidates everything below it.
 
-  Tier 2  the exclusive radiative tail vs HAPRAD 2.0. This one is comparable
-          RIGHT NOW: it is built from the MAID exclusive model (TSffun) and the
-          theta matrix only, and never touches the semi-inclusive structure
-          functions, so H1 does not affect it. Any disagreement here is a real
-          porting or integration defect.
+  Tier 2  the exclusive radiative tail vs HAPRAD 2.0. It is built from the MAID
+          exclusive model (TSffun) and the theta matrix only, and never touches
+          the semi-inclusive structure functions, so it must agree whatever
+          table is used. Any disagreement here is a porting or integration
+          defect.
 
-  Tier 3  cross sections and RC factors vs HAPRAD 2.0. These will NOT agree
-          while H1 is open, and even afterwards will differ at the third digit
-          because the C++ exponentiates delta_inf where the Fortran does not
-          (hurdle H11).
+  Tier 3  cross sections and RC factors vs HAPRAD 2.0. These agree only when the
+          C++ is given a table of the Fortran's own model (make_model_table),
+          and even then differ at the third digit because the C++ exponentiates
+          delta_inf where the Fortran does not.
 
-Exit status is 0 only if every check that is currently expected to pass does.
+With --table, a table-coverage summary is also printed: how often the
+integrals' structure-function lookups fell outside the table, into
+second-neighbour cells, or into empty cells.
+
+Exit status is 0 only if Tiers 0, 1 and 2 pass.
 """
 
 import argparse
@@ -59,7 +65,7 @@ GRIDS = {
 
 KIN_TOL = 1e-10   # kinematics: same formulas, both double precision
 EXC_TOL = 1e-3    # exclusive tail: same model and same integrand both sides
-RES_TOL = 5e-2    # cross sections: see H11
+RES_TOL = 5e-2    # cross sections: exp(delta_inf) vs the Fortran's linear form
 
 
 # Structure-function table handed to the C++ via HAPRAD_SI_TABLE (--table).
@@ -67,7 +73,10 @@ TABLE = None
 
 
 def run(binary, point, extra=()):
-    """Run a point driver and return {block: {key: float}}."""
+    """Run a point driver from the data directory and return its output as
+    {block: {key: float}}, parsed from the `### BEGIN <block>` / `### END`
+    sections and their `@key value` lines; None on timeout. Only the C++
+    driver is given the table (through HAPRAD_SI_TABLE)."""
     cmd = [binary] + ["%.10g" % v for v in point] + list(extra)
     env = dict(os.environ)
     env.pop("HAPRAD_SI_TABLE", None)
@@ -95,22 +104,27 @@ def run(binary, point, extra=()):
 
 
 def reldiff(a, b):
+    """|a - b| relative to the larger of |a|, |b| (0 if both are 0)."""
     scale = max(abs(a), abs(b))
     return 0.0 if scale == 0 else abs(a - b) / scale
 
 
 def model_dead(res):
-    """True if the C++ semi-inclusive model is uninitialised (hurdle H1)."""
+    """True if the C++ result has no Born cross section (zero or not finite),
+    as happens without a structure-function table."""
     sib = res.get("sib", 0.0)
     return (not math.isfinite(sib)) or abs(sib) < 1e-100
 
 
 def fmt(v):
+    """A number for the tables, or n/a for None."""
     return "  n/a  " if v is None else ("%9.3g" % v)
 
 
 # --------------------------------------------------------------------- tier 0
 def tier0(points):
+    """Self-consistency checks of the C++ alone; returns (name, ok, note) per
+    check, ok None for a skipped one."""
     print("=" * 78)
     print("TIER 0  self-consistency of the C++ code (model-independent)")
     print("=" * 78)
@@ -126,12 +140,12 @@ def tier0(points):
         d = reldiff(a["RES"]["sib"], b["RES"]["sib"])
         results.append(("phi symmetry  sigma(60) == sigma(300)", d < 1e-8, "reldiff %.2e" % d))
     else:
-        results.append(("phi symmetry  sigma(60) == sigma(300)", None, "model uninitialised (H1)"))
+        results.append(("phi symmetry  sigma(60) == sigma(300)", None, "no sigma_Born (no table)"))
 
     # (b) the Born cross section MUST depend on z and on pt. With A/Ac/Acc held
     #     constant every h_i carries a leading tldZ that cancels the 1/tldZ in
-    #     coef, so a flat model gives a z-independent sigma_Born -- which is the
-    #     signature of H1 and the reason this check exists.
+    #     coef, so a flat model gives a z-independent sigma_Born; this check
+    #     catches such a model.
     for label, p1, p2 in (
         ("sigma_Born depends on z ", (E, x, Q2, 0.35, pt, 60.0), (E, x, Q2, 0.65, pt, 60.0)),
         ("sigma_Born depends on pt", (E, x, Q2, z, 0.20, 60.0), (E, x, Q2, z, 0.60, 60.0)),
@@ -141,20 +155,20 @@ def tier0(points):
             d = reldiff(r1["RES"]["sib"], r2["RES"]["sib"])
             results.append((label, d > 1e-6, "reldiff %.2e" % d))
         else:
-            results.append((label, None, "model uninitialised (H1)"))
+            results.append((label, None, "no sigma_Born (no table)"))
 
     # (c) no spikes in phi. The Born and tail cross sections vary smoothly with
     #     phi_h, so a large jump between neighbouring phi is a numerical
     #     pathology rather than physics. This catches the phi=180 divergence
-    #     that H4 turned out to be: 1/tldPt2 in the A_cc -> H4z inversion blows
-    #     up unless the azimuthal amplitudes carry their proper p_t dependence.
-    #     Needs a live model -- with sigma_Born uninitialised the tail is noise.
+    #     of 1/tldPt2 in the A_cc -> H4z inversion, which blows up unless the
+    #     azimuthal amplitudes carry their proper p_t dependence.
+    #     Needs a non-zero sigma_Born -- without one the tail is noise.
     scan = []
     for ph in (170.0, 175.0, 179.0, 180.0, 181.0, 185.0):
         r = run(CPP, (E, x, Q2, z, pt, ph))
         scan.append((ph, r, (r or {}).get("RES", {}).get("tai_in", float("nan"))))
     if any(r is None or model_dead(r["RES"]) for _, r, _ in scan):
-        results.append(("no spikes in phi (tail)", None, "model uninitialised (H1)"))
+        results.append(("no spikes in phi (tail)", None, "no sigma_Born (no table)"))
     else:
         jump, at = 1.0, None
         for (p1, _, v1), (p2, _, v2) in zip(scan, scan[1:]):
@@ -165,10 +179,10 @@ def tier0(points):
         results.append(("no spikes in phi (tail)", jump < 5.0,
                         "max adjacent ratio %.1f at phi %s" % (jump, at)))
 
-    # (d) nothing may be NaN or infinite. Split by what the missing model
+    # (d) nothing may be NaN or infinite. Split by what a missing table
     #     invalidates: KIN and tai_ex are model-independent and must always be
-    #     finite; sib/sig_obs/tai_in/f1..f3 are meaningless until H1 is fixed,
-    #     since dividing by an uninitialised sigma_Born manufactures inf.
+    #     finite; sib/sig_obs/tai_in/f1..f3 depend on the structure functions,
+    #     and are reported separately.
     MODEL_DEP = {"sib", "sig_obs", "tai_in", "f1", "f2", "f3"}
     bad, bad_model = [], []
     for p in points:
@@ -187,7 +201,7 @@ def tier0(points):
                     bad.append("phi=%g %s=%s" % (p[5], k, v))
     note = "OK" if not bad else "; ".join(bad[:3])
     if not bad and bad_model:
-        note = "OK (model-independent); %d non-finite in sib/f* -- H1" % len(bad_model)
+        note = "OK (model-independent); %d non-finite in sib/f*" % len(bad_model)
     results.append(("all outputs finite over grid", not bad, note))
 
     for name, ok, note in results:
@@ -198,6 +212,10 @@ def tier0(points):
 
 # --------------------------------------------------------------------- tier 1
 def tier_compare(points, block, tol, title):
+    """Compare every quantity of output block `block` between the C++ and the
+    Fortran over the points; print the worst relative difference of each and
+    return True if all are within tol. Points either code rejects are listed
+    and skipped."""
     print()
     print("=" * 78)
     print(title)
@@ -245,13 +263,13 @@ def tier_compare(points, block, tol, title):
 def tier2(points):
     """Compare only the exclusive radiative tail.
 
-    tai_ex is independent of the (currently missing) semi-inclusive model, so
-    unlike Tier 3 this is expected to agree today.
+    tai_ex is independent of the semi-inclusive model, so unlike Tier 3 it
+    must agree whatever table the C++ is given.
     """
     print()
     print("=" * 78)
     print("TIER 2  exclusive radiative tail: C++ vs HAPRAD 2.0")
-    print("        (independent of H1 -- should agree NOW)")
+    print("        (independent of the structure-function table)")
     print("=" * 78)
 
     rows, allpass = [], True
@@ -286,7 +304,8 @@ def tier2(points):
 
 def table_coverage(points):
     """How often the integrals looked the structure functions up outside the
-    table or in an unfitted cell -- the measured size of hurdle H7."""
+    table, into second-neighbour cells, into empty cells, or at unphysical
+    kinematics; per point and in total."""
     print()
     print("=" * 78)
     print("TABLE COVERAGE  %s" % TABLE)
@@ -314,6 +333,8 @@ def table_coverage(points):
 
 
 def main():
+    """Parse the options, run the tiers on the chosen grid of points and print
+    the summary. Exit status 0 only if Tiers 0-2 pass."""
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--grid", choices=sorted(GRIDS), default="rge")
@@ -357,9 +378,9 @@ def main():
     print("  Tier 0 : %s" % ("FAIL" if hard_fail else "pass"))
     print("  Tier 1 : %s   <-- must hold; everything else rests on it"
           % ("pass" if t1 else "FAIL"))
-    print("  Tier 2 : %s   <-- should hold today; H1 does not excuse it"
+    print("  Tier 2 : %s   <-- must hold for any table"
           % ("pass" if t2 else "FAIL"))
-    print("  Tier 3 : %s   (fails unless both codes see the same model -- PLAN.md 2.3)"
+    print("  Tier 3 : %s   (fails unless both codes see the same model -- make_model_table)"
           % ("pass" if t3 else "FAIL"))
     print("=" * 78)
     return 0 if (t1 and t2 and not hard_fail) else 1

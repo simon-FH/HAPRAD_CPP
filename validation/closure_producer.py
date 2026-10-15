@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Closure test for MakePhiTable (PLAN.md Phase 2.2).
+"""Closure test for MakePhiTable's modulations.
 
 Toy pions with a known azimuthal modulation go through MakePhiTable fill + fit,
 and the fitted modulation in each cell is compared with the truth -- the mean
@@ -90,6 +90,8 @@ void closure(const char* toy, const char* table) {
 
 
 def main():
+    """Generate the toy sample, fill and fit it with MakePhiTable in a
+    temporary directory, and run the pull macro on the result."""
     nev = sys.argv[1] if len(sys.argv) > 1 else "2000000"
     seed = sys.argv[2] if len(sys.argv) > 2 else "12345"
     tmpdir = tempfile.TemporaryDirectory(prefix="closure_")  # removed when main() returns
