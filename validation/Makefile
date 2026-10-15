@@ -43,6 +43,11 @@ ifdef CERN_LIB
 TARGETS    += $(BIN)/haprad2_point $(BIN)/born_harmonics
 endif
 
+# The C++ programs inline accessors of library classes, so they must be rebuilt
+# when a library header changes; a stale binary reads members at old offsets.
+CXXTARGETS := $(filter-out $(BIN)/haprad2_point $(BIN)/born_harmonics,$(TARGETS))
+$(CXXTARGETS): $(wildcard $(TOP)/*.h)
+
 # For tabulating HAPRAD 2.0's model (PLAN.md 2.3): the same objects, but with
 # the unconditional `stop` at semi_inclusive_model.f:178 removed, so the cap
 # the authors wrote immediately after it takes effect instead of aborting the

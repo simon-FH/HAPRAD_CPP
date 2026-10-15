@@ -96,8 +96,19 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
     Double_t tldLambda = fInv->S() * tldXg * tldQ2 - SQ(M * tldQ2);  // electron part is ignored: m_e*lamndaQ
     Double_t LambdaRatio = tldLq / tldLambda;
     Double_t RelH1H2 = (1. + 4. * SQ(M * tldX) / tldQ2) / 2. / tldX / (1 + rlt);
+    // The equivalent beam energy tldE above (the electron energy that would give
+    // the shifted Q2 and nu at the same scattering angle) is HAPRAD 2.0's
+    // (ihaprad.f:1023-1025). There it reaches only the cos(phi) and cos(2 phi)
+    // terms of the model, through y; H1 and H2 never depend on it. Doing the
+    // same here (decision of the port's author, October 2026): H3 and H4 keep
+    // the equivalent y, H1 and H2 -- the conversion of A, which the table
+    // defines with the real beam energy -- use the real one. Applying tldY to
+    // all four put the inelastic tail 0.006-0.019 in eta away from the FORTRAN
+    // with identical physics; this way it is 0.000-0.010 (PLAN.md 2.3).
     Double_t N = SQ(tldQ2) * Sqrt(tldQ2 + SQ(tldY)) / SQ(tldY);
-    Double_t H2z = N * A * coef / (RelH1H2 * SQ(tldQ2) + (fInv->S() * tldXg - SQ(M) * tldQ2) * tldX);
+    Double_t tldYReal = tldNu / fKin->E();
+    Double_t NReal = SQ(tldQ2) * Sqrt(tldQ2 + SQ(tldYReal)) / SQ(tldYReal);
+    Double_t H2z = NReal * A * coef / (RelH1H2 * SQ(tldQ2) + (fInv->S() * tldXg - SQ(M) * tldQ2) * tldX);
     Double_t H1z = H2z * RelH1H2;
     Double_t H3z = N * Ac * Sqrt(LambdaRatio) * coef / tldSp / Sqrt(tldPt2);
     Double_t H4z = N * Acc * LambdaRatio * coef * tldX / tldPt2;

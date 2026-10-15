@@ -43,9 +43,11 @@ The C++ needs a table of azimuthal amplitudes (format in
 HAPRAD_SI_TABLE=/tmp/toy.root ./bin/rc_point 10.5473 0.234 2.5 0.34 0.424 60
 ```
 
-With a table, `rc_point` also reports `sf_lookups`, `sf_oor`, `sf_empty` and
-`sf_unphys`: how many structure-function lookups the integrals made in that call,
-and how many fell outside the table, in an unfitted cell, or below threshold.
+With a table, `rc_point` also reports `sf_lookups`, `sf_oor`, `sf_second`,
+`sf_empty` and `sf_unphys`: how many structure-function lookups the integrals
+made in that call, and how many fell outside the table, were filled from second
+neighbours because no surrounding cell was fitted, found no fitted cell even
+one step further out, or fell below threshold.
 `HAPRAD_SI_NEAREST=1` switches the reader from interpolation to nearest-cell
 lookup, for comparison only -- see PLAN.md 0.2 for why that mode breaks the
 inner R integral.

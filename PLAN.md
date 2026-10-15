@@ -10,6 +10,11 @@ Companion to [H1_NOTES.md](H1_NOTES.md) and [validation/README.md](validation/RE
 | Applying the correction | **per-event weights**, interpolated from a precomputed RC grid — not one HAPRAD call per analysis-bin centroid |
 | Hadrons | **pions**. pi+ first: every input exists. pi- once an exclusive grid exists (Phase 6) |
 | Iterations | to a **tolerance**, not a fixed count. Expect 2-3: model error is suppressed by roughly `delta - 1 ~ 0.05` per pass at our measured `delta ~ 1.02-1.11` |
+| Equivalent beam energy (October 2026, port's author) | **as HAPRAD 2.0 uses it**: the equivalent energy reaches only H3 and H4 (the cos phi and cos 2 phi terms); H1 and H2, the conversion of A, use the real beam energy. Implemented in `TStructFunctionArray` (see 2.3, Finding 2) |
+| Factorised correction (October 2026, port's author) | **exponentiated**, as the C++ already had it: `e^delta_inf (1 + delta_VR + delta_vac)`, not HAPRAD 2.0's `delta_inf = 0` |
+| Table cells without data (October 2026, port's author) | **second neighbours**: when none of the 16 surrounding cell centres is fitted, the fitted cells one step further out are used. Implemented in `TSemiInclusiveModel` as a filled copy of the table, made when it is loaded, in which every unfitted cell holds the average of its fitted neighbours; the same interpolation runs on it, so the fallback is continuous and costs one ordinary lookup (a first version that searched the 4x4x4x4 block per lookup made each HAPRAD call 7x slower). On run 020026's one-run table, at the example point, lookups finding no data fall from 54% to 36%, 17% now come from second neighbours, and a call costs 1.7x. No effect on a complete table. A model fallback (HAPRAD 3.0's) is for later |
+| Exclusive tail | **to be included** (f3, Z/A for nuclei) once the table is in absolute units; until then `rc_exclusive_tail = no` and ApplyRC refuses `yes` |
+| Inclusive electron count | corrected separately with **EXTERNALS** (internal and external radiation, elastic and quasi-elastic tails) |
 
 ## Starting point
 
@@ -375,8 +380,27 @@ grid (Q2 x nu x z x pt2)   f1 error, current   f1 error, tldE = E
 27x24x30x36 (wider)            2.49%               0.60%
 ```
 
-**This is a change to the core calculation, so it is not made.** It needs a
-decision -- ideally from the port's author, together with the next point.
+**Decided (October 2026), and implemented in a refined form.** The equivalent
+energy is not a C++ invention: it is HAPRAD 2.0's (`ihaprad.f:1023-1025`). But
+there it reaches only the cos phi and cos 2 phi terms of the FORTRAN model,
+through y, while the C++ applied it, through the factor N of line 99, to all
+four structure functions, including H1 and H2 from A. The port's author chose
+the FORTRAN way: equivalent y for H3 and H4, real beam energy for H1 and H2.
+With the model-derived table, f1 against the FORTRAN:
+
+```
+point (x Q2 z pt phi)          before    FORTRAN way   tldE = E    FORTRAN
+0.234 2.5 0.34 0.424  60       0.95079   0.96559       0.96393     0.96563
+0.234 2.5 0.34 0.424 180       0.96978   0.98540       0.98725     0.99490
+0.3   4   0.5  0.5    30       0.89789   0.90575       0.90547     0.90903
+0.234 2.5 0.7  0.3    60       0.88086   0.88542       0.88507     0.88952
+```
+
+The FORTRAN way agrees as well as the real energy everywhere; the remaining
+0.000-0.010 is the exponentiated factorised part (decided to stay) plus table
+resolution. At the capped point of Finding 3 it moves the other way (f1 1.0164
+before, 1.0553 now, FORTRAN 1.0330), as expected where no table can follow the
+reference model.
 
 *Finding 3 -- one test point exposes the reference model, not the C++.* At
 x = 0.15, Q2 = 2, z = 0.3 the FORTRAN's cos(2 phi) term sits exactly on the
@@ -387,8 +411,7 @@ grid (20% in sigma_Born) and only shrinks with refinement. A 45% cos(2 phi)
 modulation is not physical; real data will not have it.
 
 **Questions for the port's author:**
-1. Should the inversion use the beam energy E (`tldE = E`) rather than the
-   reconstructed effective energy? The evidence above says yes.
+1. *Answered:* use the FORTRAN's convention (see above).
 2. `TStructFunctionArray.cxx:99`: `N = Q^4 * Sqrt(tldQ2 + SQ(tldY)) / SQ(tldY)`
    adds Q^2 (GeV^2) to y^2 (dimensionless). Line 61 already computes
    `tld_sq = Sqrt(tldQ2 + SQ(tldNu)) = |q|`; was `tldNu` meant? *No longer
@@ -586,7 +609,7 @@ centroid path are superseded by the weights and can be retired.
 | Full dataset | Phase 1 binning choice, Phase 5 | `runs_all.txt` lists 384 runs; 1 is processed locally |
 | Target separation | Phase 1 | RG-E constants hold only a global `vz` window (-40, 26.12 cm); per-target windows for the LD2 cell vs the solid foil are still to be defined |
 | Luminosity | absolute table scale, hence the exclusive tail (Phase 1) | integrated charge and target areal density per run; for nuclear targets, also a per-nucleon convention to match MAID's free proton |
-| Nuclear corrections beyond the SFs | Phase 5 | the exclusive tail (MAID is free-proton), Coulomb distortion (`RGE_RC_CC` already exists), and external radiation in the target. Whether they matter depends on whether the observable is a ratio in which they cancel — a call for the professor |
+| Nuclear corrections beyond the SFs | Phase 5 | the inclusive electron count is corrected with EXTERNALS. Still open: Z/A scaling of the free-proton exclusive tail, external radiation for the hadron yield (HAPRAD has none), Coulomb distortion (`RGE_RC_CC` exists), and keeping the cuts of EXTERNALS and HAPRAD consistent |
 
 ## Order of work
 

@@ -291,9 +291,9 @@ def table_coverage(points):
     print("=" * 78)
     print("TABLE COVERAGE  %s" % TABLE)
     print("=" * 78)
-    print("  %-40s %12s %9s %9s %9s" % ("point (x,Q2,z,pt,phi)", "lookups", "outside", "empty", "unphys"))
+    print("  %-40s %12s %9s %9s %9s %9s" % ("point (x,Q2,z,pt,phi)", "lookups", "outside", "2nd nbr", "empty", "unphys"))
     print("  " + "-" * 82)
-    tot = {"sf_lookups": 0, "sf_oor": 0, "sf_empty": 0, "sf_unphys": 0}
+    tot = {"sf_lookups": 0, "sf_oor": 0, "sf_second": 0, "sf_empty": 0, "sf_unphys": 0}
     for p in points:
         r = run(CPP, p)
         res = (r or {}).get("RES", {})
@@ -302,14 +302,15 @@ def table_coverage(points):
             continue
         for k in tot:
             tot[k] += res.get(k, 0)
-        print("  x=%-5.3g Q2=%-4.3g z=%-4.3g pt=%-5.3g phi=%-5.4g %12d %8.2f%% %8.2f%% %8.2f%%"
-              % (p[1], p[2], p[3], p[4], p[5], n, 100. * res.get("sf_oor", 0) / n,
+        print("  x=%-5.3g Q2=%-4.3g z=%-4.3g pt=%-5.3g phi=%-5.4g %12d %8.2f%% %8.2f%% %8.2f%% %8.2f%%"
+              % (p[1], p[2], p[3], p[4], p[5], n, 100. * res.get("sf_oor", 0) / n, 100. * res.get("sf_second", 0) / n,
                  100. * res.get("sf_empty", 0) / n, 100. * res.get("sf_unphys", 0) / n))
     if tot["sf_lookups"]:
         n = tot["sf_lookups"]
         print("  " + "-" * 82)
-        print("  %-40s %12d %8.2f%% %8.2f%% %8.2f%%" % ("all points", n, 100. * tot["sf_oor"] / n,
-                                                       100. * tot["sf_empty"] / n, 100. * tot["sf_unphys"] / n))
+        print("  %-40s %12d %8.2f%% %8.2f%% %8.2f%% %8.2f%%" % ("all points", n, 100. * tot["sf_oor"] / n,
+                                                               100. * tot["sf_second"] / n, 100. * tot["sf_empty"] / n,
+                                                               100. * tot["sf_unphys"] / n))
 
 
 def main():

@@ -75,7 +75,7 @@ void CountGSLWarnings(int level, Bool_t abort, const char* location, const char*
 struct Result {
   bool physical = false, valid = false;
   Double_t sib = 0., r[3] = {0., 0., 0.};
-  Double_t outside = 0., empty = 0.;  // fraction of table lookups
+  Double_t outside = 0., empty = 0., second = 0.;  // fraction of table lookups
   Long64_t warnings = 0;              // integrator warnings during the call
 };
 
@@ -108,6 +108,7 @@ Result Evaluate(TRadCor& rc, const Config& c, Double_t Q2, Double_t nu, Double_t
     if (sf->NLookups() > 0) {
       res.outside = double(sf->NOutOfRange()) / sf->NLookups();
       res.empty = double(sf->NEmptyCell()) / sf->NLookups();
+      res.second = double(sf->NSecondNeighbour()) / sf->NLookups();
     }
   return res;
 }
@@ -126,6 +127,7 @@ int Run(const Config& c, const char* tablePath, Long64_t chunk, Long64_t nChunks
 
   std::unique_ptr<THnD> sib(g.MakeHist("sigma_born")), comp[3], valid(g.MakeHist("valid")),
       computed(g.MakeHist("computed")), outside(g.MakeHist("table_outside")), empty(g.MakeHist("table_empty")),
+      second(g.MakeHist("table_second")),
       warn(g.MakeHist("integrator_warnings"));
   for (Int_t k = 0; k < 3; ++k) comp[k].reset(g.MakeHist(rge::kRCComp[k]));
 
@@ -145,6 +147,7 @@ int Run(const Config& c, const char* tablePath, Long64_t chunk, Long64_t nChunks
     }
     outside->SetBinContent(bin, r.outside);
     empty->SetBinContent(bin, r.empty);
+    second->SetBinContent(bin, r.second);
     warn->SetBinContent(bin, r.warnings);
     if (!r.valid) {
       ++nRejected;
@@ -166,7 +169,7 @@ int Run(const Config& c, const char* tablePath, Long64_t chunk, Long64_t nChunks
   TFile out(outPath, "RECREATE");
   if (out.IsZombie()) return 1;
   for (THnD* h : {sib.get(), comp[0].get(), comp[1].get(), comp[2].get(), valid.get(), computed.get(), outside.get(),
-                  empty.get(), warn.get()})
+                  empty.get(), second.get(), warn.get()})
     h->Write();
   TNamed("table", tablePath).Write();
   TNamed("table_luminosity", tableLumi.c_str()).Write();
