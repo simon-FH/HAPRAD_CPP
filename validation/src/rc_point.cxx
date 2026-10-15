@@ -1,6 +1,6 @@
 // rc_point -- evaluate ONE kinematic point with the C++ HAPRAD and dump both
-// the Lorentz/hadron kinematics (Tier 1) and the radiative-correction results
-// (Tier 3) in a machine-readable form.
+// the Lorentz/hadron kinematics (block KIN) and the radiative-correction
+// results (block RES) in a machine-readable form, for compare.py.
 //
 // Every reportable quantity is printed as
 //
@@ -11,8 +11,7 @@
 //
 // The kinematics are obtained by driving TLorentzInvariants / THadronKinematics
 // directly -- the same objects, constructed the same way, that TRadCor builds
-// internally. They cannot be read back from TRadCor after the fact because
-// CalculateRCFactor() deletes them before returning.
+// internally -- so that they are reported even for a point TRadCor rejects.
 
 #include "TRadCor.h"
 #include "THapradConfig.h"
@@ -28,8 +27,11 @@
 #include <cstdlib>
 #include <cmath>
 
+// One output line, `@<key> <value>`.
 static void emit(const char* key, double value) { printf("@%-10s % .14e\n", key, value); }
 
+// Parse the point, print the KIN block, run CalculateRCFactor with the table
+// named by HAPRAD_SI_TABLE (if any), and print the RES block.
 int main(int argc, char** argv) {
   if (argc < 7) {
     fprintf(stderr,
@@ -49,7 +51,7 @@ int main(int argc, char** argv) {
   const double phi = atof(argv[6]);
   const double m2th = (argc > 7) ? atof(argv[7]) : 0.0;
 
-  // ---------------------------------------------------------------- Tier 1
+  // ------------------------------------------------------- kinematics (KIN)
   int kin_ok = 1;
   {
     THapradConfig cfg;
@@ -101,7 +103,7 @@ int main(int argc, char** argv) {
     printf("### END KIN\n");
   }
 
-  // ---------------------------------------------------------------- Tier 3
+  // -------------------------------------------- cross sections, RC (RES)
   printf("### BEGIN RES\n");
   {
     TRadCor rc;
@@ -116,10 +118,11 @@ int main(int argc, char** argv) {
     }
     rc.CalculateRCFactor(E, x, Q2, z, pt, phi, m2th, 0.5);
 
-    // Tier 2 diagnostic: dump the exclusive-tail integrand rv2tr(tau, phi_k)
-    // itself, so it can be compared against the Fortran pointwise. This
-    // separates a mis-ported integrand from a quadrature problem. It relies on
-    // TRadCor keeping fKin/fInv/fHadKin alive after the call.
+    // HAPRAD_DUMP_EXC=1: dump the exclusive-tail integrand rv2tr(tau, phi_k)
+    // on a 9 x 5 grid inside the tau range, so it can be compared against the
+    // Fortran pointwise. This separates a mis-ported integrand from a
+    // quadrature problem. It relies on TRadCor keeping fKin/fInv/fHadKin alive
+    // after the call.
     if (getenv("HAPRAD_DUMP_EXC") && kin_ok) {
       const double M2 = kMassProton * kMassProton;
       const TLorentzInvariants* iv = rc.GetLorentzInvariants();

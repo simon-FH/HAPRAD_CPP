@@ -1,5 +1,6 @@
-// MakePhiTable -- RG-E ntuples -> structure-function table for HAPRAD
-// (PLAN.md Phase 1). Successor to PhiHist/phihist.cpp, deleted in b303487.
+// MakePhiTable -- RG-E ntuples -> structure-function table for HAPRAD: the
+// azimuthal amplitudes A, Ac, Acc per 4-D kinematic cell, from a fit of each
+// cell's phi distribution.
 //
 // Two stages, so the expensive one runs on the cluster:
 //
@@ -8,7 +9,7 @@
 //       Each job can take any subset of the files; outputs merge with `hadd`.
 //       --rc-friend: multiply each event's weight by RC.w from ApplyRC's friend
 //       of that file, DIR/<name>_rc.root for <name>.root -- the RC-corrected
-//       table of the next iteration (PLAN.md Phase 4).
+//       counts from which the next iteration's table is fitted.
 //
 //   MakePhiTable fit <config> <counts.root> <table.root>
 //       Fits A + Ac cos(phi) + Acc cos(2 phi) in every 4-D cell and writes the
@@ -17,25 +18,28 @@
 // WHAT A IS. HAPRAD turns the table into structure functions through
 // TStructFunctionArray, and sigma_Born = K * (A + Ac cos phi + Acc cos 2 phi)
 // with K a kinematic factor of the code. K does not match any standard
-// definition of a yield (PLAN.md Phase 1), so the table *defines* A by it:
+// definition of a yield, so the table *defines* A by it:
 //
 //     A(cell) = [measured cross section in the cell] / K(cell centre)
 //
 // The measured cross section, in HAPRAD's variables (x, y, z, pt2, phi), is the
 // fitted yield times the Jacobian from the binning variables,
 // |d(Q2, nu)/d(x, y)| = 2 M E nu, over the cell volume (phi in radians, as in
-// HAPRAD's sigma) and the luminosity. Defined this way, whatever K's formula is
-// cancels in the calculation: tested in PLAN.md 2.3 by replacing it and seeing
-// no change. It requires the conversion to use the real beam energy (PLAN.md
-// 2.3, Finding 2). Checked end to end by validation/closure_normalisation.py.
+// HAPRAD's sigma) and the luminosity. K is computed by TRadCor itself (class
+// KFactor below), so whatever K's formula is cancels in the calculation:
+// replacing it changes no result. This requires TStructFunctionArray to
+// convert A with the real beam energy, as K here is computed with it. Checked
+// end to end by validation/closure_normalisation.py.
 //
 // The overall scale does NOT cancel in the RC factor: sigma_Born and the
 // inelastic tail scale with the table, the exclusive tail (MAID) does not. With
 // `luminosity` unset (1) the table is in arbitrary units and the exclusive
 // tail's share of the correction is wrong by that factor.
 //
-// The table is written with pt_scaling = "reduced" (Ac/pt, Acc/pt^2) and
-// interpolation = "log", per PLAN.md 0.2 and 2.3.
+// The table is written with pt_scaling = "reduced" (Ac/pt, Acc/pt^2), so the
+// modulations vanish with the right power of p_t, and interpolation = "log",
+// because A falls steeply with Q2 while log A and the ratios are smooth (see
+// TSemiInclusiveModel.h).
 //
 // ACCEPTANCE is not applied yet; the table records `acceptance_corrected = no`
 // so that an uncorrected table cannot be mistaken for a real one.
@@ -76,6 +80,7 @@ std::string FriendPath(const std::string& dir, const std::string& input) {
   return dir + "/" + base + "_rc.root";
 }
 
+// Number of entries of `tree` in `file`, or -1 if the file or tree is missing.
 Long64_t Entries(const std::string& file, const char* tree) {
   std::unique_ptr<TFile> f(TFile::Open(file.c_str(), "READ"));
   if (!f || f->IsZombie()) return -1;
@@ -83,6 +88,10 @@ Long64_t Entries(const std::string& file, const char* tree) {
   return t ? t->GetEntries() : -1;
 }
 
+// The `fill` stage: apply the config's selection to every entry of the input
+// files and fill the 5-D counts in (Q2, nu, z, pt2, phi[deg]), each event
+// weighted by the optional weight branch and, with --rc-friend, by its RC
+// weight. Also writes the cut flow, the config and the list of sources.
 int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, int nIn, char** in) {
   TChain chain("DT");
   TString sources;
@@ -128,9 +137,10 @@ int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, i
       fprintf(stderr, "RC friends lack branch w\n");
       return 1;
     }
-    // Read in lockstep rather than as a TChain friend: the main chain's
-    // SetBranchStatus("*", 0) is re-applied to friends on every file change,
-    // which switched w off (the weights came out exactly 1).
+    // Read in lockstep (GetEntry(i) on both chains) rather than as a TChain
+    // friend: the main chain's SetBranchStatus("*", 0) is re-applied to
+    // friends on every file change, which would switch w off and leave every
+    // weight at 1.
     if (rcChain.GetEntries() != chain.GetEntries()) {
       fprintf(stderr, "RC friends have %lld entries, the inputs %lld\n", rcChain.GetEntries(), chain.GetEntries());
       return 1;
@@ -183,9 +193,10 @@ int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, i
 //     <cos(n phi)>_bin = cos(n phi_c) * sin(n w/2) / (n w/2),   w = bin width
 //
 // A counted bin integrates the distribution, so the centre value attenuates the
-// harmonics -- by 1.1% for cos(phi) and 4.5% for cos(2 phi) with 12 bins. The
-// closure test saw exactly that, as opposite-sign pull offsets.
-// Returns false if the normal matrix is singular.
+// harmonics -- by 1.1% for cos(phi) and 4.5% for cos(2 phi) with 12 bins.
+// `var` holds each bin's variance. Solves the 3x3 normal equations; returns
+// the parameters p, their covariance cov and the chi2, or false if the normal
+// matrix is singular.
 bool FitHarmonics(const std::vector<Double_t>& phi, Double_t width, const std::vector<Double_t>& y,
                   const std::vector<Double_t>& var, Double_t p[3], Double_t cov[3][3], Double_t& chi2) {
   const Double_t s1 = std::sin(width / 2.) / (width / 2.);
@@ -220,9 +231,10 @@ bool FitHarmonics(const std::vector<Double_t>& phi, Double_t width, const std::v
   return true;
 }
 
-// K = sigma_Born / A at a point, from TRadCor with a table that is A = 1
-// everywhere. Written to a temporary file because that is what the reader
-// takes.
+// K = sigma_Born / A at a point, from TRadCor with a table that is A = 1 and
+// Ac = Acc = 0 everywhere (one cell covering all kinematics), so that
+// CalculateBorn() returns K itself. The table is written to a temporary file,
+// because that is what the reader takes, and removed on destruction.
 class KFactor {
  public:
   explicit KFactor(const std::string& tmpPath) : fPath(tmpPath) {
@@ -260,6 +272,15 @@ class KFactor {
   bool fOk;
 };
 
+// The `fit` stage. For every 4-D cell of the counts:
+//   1. skip it if it has too few filled phi bins or effective events;
+//   2. fit A + Ac cos(phi) + Acc cos(2 phi) by iteratively reweighted least
+//      squares (FitHarmonics, with variances from the previous fit);
+//   3. skip it if the fitted A <= 0 or HAPRAD rejects the cell centre;
+//   4. convert the yield harmonics to the table's A, Ac/pt, Acc/pt^2 (see the
+//      top of this file) and mark the cell fitted.
+// Writes the table with its errors, the raw fit results, the event counts and
+// chi2/ndf per cell, and the keys that describe it; prints a cell summary.
 int Fit(const Config& c, const char* countsPath, const char* outPath) {
   std::unique_ptr<TFile> in(TFile::Open(countsPath, "READ"));
   if (!in || in->IsZombie()) {
@@ -405,7 +426,7 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
   TNamed("normalisation",
          "A = (fitted yield harmonic) x 2 M E nu / (5-D cell volume, phi in rad) / luminosity / "
          "K(cell centre), K = sigma_Born / A of TRadCor at the beam energy. Valid only if "
-         "TStructFunctionArray converts with the real beam energy (PLAN.md 2.3, Finding 2).")
+         "TStructFunctionArray converts A with the real beam energy.")
       .Write();
   TNamed("luminosity", c.lumi == 1. ? "1 (arbitrary units: the exclusive tail is NOT on the same scale)"
                                     : Form("%.10g events/nb", c.lumi))
@@ -429,6 +450,7 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
 
 }  // namespace
 
+// Dispatch to the `fill` or `fit` stage; anything else prints the usage.
 int main(int argc, char** argv) {
   if (argc >= 5 && std::string(argv[1]) == "fill") {
     Config c;

@@ -1,5 +1,6 @@
 // make_weighted_events -- toy pions weighted by HAPRAD 2.0's Born cross section,
-// for the normalisation closure of MakePhiTable (PLAN.md Phase 1).
+// for the normalisation closure of MakePhiTable (closure_normalisation.py) and
+// the iteration closure (closure_iteration.py).
 //
 // Events are uniform in the BINNING variables (Q2, nu, z, pt2, phi). Weighting
 // each by
@@ -53,6 +54,7 @@ struct Box {
   double lo[4], hi[4];
 };
 
+// Parse "Q2lo:Q2hi,nulo:nuhi,zlo:zhi,pt2lo:pt2hi"; false if malformed.
 bool ParseBox(const char* s, Box& b) {
   return std::sscanf(s, "%lf:%lf,%lf:%lf,%lf:%lf,%lf:%lf", &b.lo[0], &b.hi[0], &b.lo[1], &b.hi[1], &b.lo[2], &b.hi[2],
                      &b.lo[3], &b.hi[3]) == 8;
@@ -88,6 +90,11 @@ long Generate(unsigned seed, long n, double E, const Box& b, F f) {
 
 }  // namespace
 
+// `points`: print each event's kinematics in born_harmonics' input format,
+// with the event id in place of the first cell index.
+// `build`: read the harmonics back by id, weight each event by its Born cross
+// section times 1/(2 M E nu), scale the weights to a mean of one, and write the
+// ntuple with the draw count, box volume and luminosity.
 int main(int argc, char** argv) {
   Box b;
   if (argc < 6 || !ParseBox(argv[5], b)) {

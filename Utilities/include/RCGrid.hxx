@@ -12,8 +12,8 @@
 // The RC factor sigma_obs / sigma_Born is r_vr + r_in + c r_ex, with c = 0
 // (TRadCor's GetFactor1) or Z/A (GetFactor3). Keeping the parts separate lets
 // that choice be made when the weights are applied -- it has to be, because the
-// exclusive tail is meaningful only for a table in absolute units (PLAN.md
-// Phase 1).
+// exclusive tail is meaningful only for a table in absolute units: it is an
+// absolute cross section, while r_vr and r_in scale with the table.
 //
 // Storage: one THnD per quantity with ONE BIN PER NODE, centred on it (bin i+1
 // holds node i), so that grids computed in chunks merge with `hadd`. The
@@ -39,6 +39,8 @@ namespace rge {
 
 const char* const kRCComp[3] = {"r_vr", "r_in", "r_ex"};
 
+// The node layout: n[d] equally spaced nodes from lo[d] to hi[d] on each of the
+// five axes (kRCAxis), read from the rc_nodes_* config keys or from a grid file.
 struct RCNodes {
   Int_t n[5];
   Double_t lo[5], hi[5];
@@ -70,6 +72,7 @@ struct RCNodes {
       k /= n[d];
     }
   }
+  // An empty THnD with one bin per node, each bin centred on its node.
   THnD* MakeHist(const char* name) const {
     Double_t a[5], b[5];
     for (Int_t d = 0; d < 5; ++d) {
@@ -82,12 +85,18 @@ struct RCNodes {
   }
 };
 
+// A merged RC grid in memory: the three ratios at every node, and which nodes
+// gave a valid result.
 class RCGrid {
  public:
+  // Result of Interpolate: all corners valid; some valid; point outside the
+  // grid; no valid corner.
   enum Status { kInside = 0, kPartial = 1, kOutside = 2, kNoValidCorner = 3 };
 
-  // Reads a merged grid. Returns false, with the reason in `why`, if the file
-  // is not a complete grid.
+  // Reads a merged grid: the node layout from the axes of "computed", the
+  // ratios and the valid flags per node, and the "table", "table_luminosity"
+  // and "beam_energy" keys. Returns false, with the reason in `why`, if the
+  // file is not an RC grid or any node was computed other than exactly once.
   bool Load(const char* path, std::string& why) {
     std::unique_ptr<TFile> f(TFile::Open(path, "READ"));
     if (!f || f->IsZombie()) {
@@ -136,9 +145,12 @@ class RCGrid {
   }
 
   // Multilinear interpolation of the three ratios at v = (Q2, nu, z, pt,
-  // phi[deg, 0..180]). Corners where HAPRAD gave no result are left out and the
-  // rest renormalised; `cover` is the interpolation weight that had a result
-  // (1 inside the valid region). Outside the grid nothing is extrapolated.
+  // phi[deg, 0..180]). Per axis, t is the position in node steps; i0 the lower
+  // node of the bracketing pair and f the weight of the upper one. The 2^5
+  // corners are then summed, bit d of `corner` choosing lower or upper on axis
+  // d. Corners where HAPRAD gave no result are left out and the rest
+  // renormalised; `cover` is the interpolation weight that had a result (1
+  // inside the valid region). Outside the grid nothing is extrapolated.
   Status Interpolate(const Double_t v[5], Double_t r[3], Double_t& cover) const {
     r[0] = r[1] = r[2] = 0.;
     cover = 0.;
@@ -171,6 +183,7 @@ class RCGrid {
   }
 
   const RCNodes& Nodes() const { return fG; }
+  // The value of a key read by Load() ("table", ...), or "" if absent.
   std::string Info(const std::string& key) const {
     auto it = fInfo.find(key);
     return it == fInfo.end() ? "" : it->second;

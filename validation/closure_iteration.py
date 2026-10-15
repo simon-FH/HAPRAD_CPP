@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Closure test of the RC iteration (PLAN.md Phase 4).
+"""Closure test of the RC iteration.
 
 Toy pions uniform in (Q2, nu, z, pt2, phi), weighted by HAPRAD 2.0's Born cross
 section, give a TRUE Born table T_B (MakePhiTable) and its RC grid RC_true. The
@@ -110,6 +110,7 @@ void cmptable(const char* a, const char* b) {
 
 
 def run(cmd, **kw):
+    """Run cmd, exit with the tail of its output on failure, return stdout."""
     r = subprocess.run(cmd, capture_output=True, text=True, **kw)
     if r.returncode:
         sys.exit("failed: %s\n%s" % (" ".join(cmd), (r.stdout + r.stderr)[-3000:]))
@@ -117,10 +118,14 @@ def run(cmd, **kw):
 
 
 def at(out, tag):
+    """The fields after `tag` on the first output line starting with it."""
     return [l.split()[1:] for l in out.splitlines() if l.startswith(tag)][0]
 
 
 def main():
+    """Make the toy events, build the true table and RC grid and the observed
+    events, run rc_iterate.py on the observed events, and print each
+    iteration's table and grid against the truth."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("n", nargs="?", default="2000000")
     ap.add_argument("--iterations", type=int, default=4)

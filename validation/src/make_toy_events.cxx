@@ -1,5 +1,6 @@
 // make_toy_events -- toy pions in the RG-E ntuple format (tree "DT"), with a
-// KNOWN azimuthal modulation, for closure tests of MakePhiTable (PLAN.md 2.2).
+// KNOWN azimuthal modulation, for the closure test of MakePhiTable's
+// modulations (closure_producer.py).
 //
 // Kinematics are uniform in (Q2, nu, z, pt2) inside physical limits; phi is
 // drawn from
@@ -23,9 +24,14 @@
 #include <cstdio>
 #include <cstdlib>
 
+// The true modulations at transverse momentum pt [GeV].
 double TrueRc(double pt) { return -0.15 * pt / 0.5; }
 double TrueRcc(double pt) { return 0.05 * (pt / 0.5) * (pt / 0.5); }
 
+// Draw events until n_events are kept: kinematics uniform in the box
+// Q2 1-6, nu 3-9.5, z 0.15-0.95, pt2 0-1.2, rejected where the hadron cannot
+// have that p_t; phi by accept-reject on the modulation; then fill one ntuple
+// row with the hadron going forward.
 int main(int argc, char** argv) {
   if (argc < 3) {
     fprintf(stderr, "usage: make_toy_events <out.root> <n_events> [seed]\n");

@@ -34,6 +34,11 @@ TRadCor::~TRadCor() {
 }
 
 Bool_t TRadCor::LoadSemiInclusiveTable(const char* path) {
+  // Load the table of measured azimuthal amplitudes A, Ac, Acc from which the
+  // semi-inclusive structure functions are built (format in
+  // TSemiInclusiveModel.h). The model object is created on first use and
+  // reused by later loads. Returns false if the file cannot be used.
+
   if (!fSIModel) fSIModel = new TSemiInclusiveModel();
   return fSIModel->Load(path);
 }
@@ -86,11 +91,10 @@ void TRadCor::CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z,
   // Set up the propostion for protons to neutrons Z/A
   NAZ = targProp;
 
-  // These are owned for the lifetime of the object rather than just this call,
-  // so that GetKinematicalVariables()/GetLorentzInvariants()/
-  // GetHadronKinematics() actually return usable pointers afterwards. They used
-  // to be deleted before returning, which left those public getters handing out
-  // dangling pointers.
+  // The kinematics objects of the previous point are replaced, and the new ones
+  // are kept after this call returns, so that GetKinematicalVariables(),
+  // GetLorentzInvariants() and GetHadronKinematics() stay valid until the next
+  // point (the destructor frees the last set).
   delete fKin;
   delete fInv;
   delete fHadKin;
@@ -108,10 +112,9 @@ void TRadCor::CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z,
   Double_t Mx2 = SQ(kMassProton) + S_x * (1 - fKin->Z()) + t_temp;  // HH: check if T is the correct one, if the evaluate is called
                                                                     // correctly
 
-  // Results are members and used to persist across calls: a point rejected on
-  // kinematics left GetSigBorn()/GetSigObs()/GetTail() reporting the PREVIOUS
-  // point's values. GetFactor1/2/3 were shielded by fKinError, but nothing else
-  // was.
+  // Clear the results of the previous point, so that a point rejected on
+  // kinematics reports zeros through GetSigBorn(), GetSigObs() and GetTail()
+  // rather than the previous point's values.
   sigma_born = 0.;
   sig_obs = 0.;
   tai[0] = 0.;
@@ -151,6 +154,11 @@ void TRadCor::CalculateRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z,
 }
 
 Double_t TRadCor::CalculateBorn(Double_t E, Double_t x, Double_t Q2, Double_t z, Double_t p_t, Double_t phi) {
+  // Return the Born cross section at one point, with the same kinematics setup
+  // and normalisation N as CalculateRCFactor(...) but without the delta factors
+  // and tail integrals. A point rejected on kinematics returns 0 and sets the
+  // kinematic-error state.
+
   delete fKin;
   delete fInv;
   delete fHadKin;
@@ -192,6 +200,9 @@ Double_t TRadCor::GetRCFactor(Double_t E, Double_t x, Double_t Q2, Double_t z, D
 
   CalculateRCFactor(E, x, Q2, z, p_t, phi, maxMx2, targProp);
 
+  // A point with no Born cross section (e.g. outside the table's coverage) has
+  // no defined factor; like a rejected point it returns 0, as does a factor
+  // that is not finite. GetFactor1/2/3 follow the same rule.
   if (fKinError || fParametersError || sigma_born == 0.)
     return 0;
   else {
@@ -248,14 +259,12 @@ Double_t TRadCor::GetFactor3(void) {
 void TRadCor::Initialization(void) {
   fInv->Evaluate();
 
-  // Whether p_t (rather than the invariant t) was the quantity supplied has to
-  // be recorded BEFORE THadronKinematics::Evaluate() runs: when p_t is given,
-  // SetMomentum() overwrites fKin's T with the computed invariant t, which is
-  // negative. Testing fKin->T() >= 0 afterwards is therefore always false, and
-  // the p_t-differential Jacobian below was silently never applied -- leaving
-  // every absolute cross section too small by sqrt(lambda_q) / (2 M p_l),
-  // a factor of 2 to 3.5 over the RG-E range. The FORTRAN applies it inside
-  // the `IF (tdif .GE. 0)` block, before tdif is overwritten (ihaprad.f).
+  // Whether p_t (rather than the invariant t) was supplied must be recorded
+  // BEFORE THadronKinematics::Evaluate() runs: when p_t is given, SetMomentum()
+  // overwrites fKin's T with the computed (negative) invariant t. The flag
+  // selects the Jacobian sqrt(lambda_q) / (2 M p_l) below, which makes the
+  // cross section differential in p_t instead of t. The FORTRAN applies it
+  // inside its `IF (tdif .GE. 0)` block, before tdif is overwritten (ihaprad.f).
   const Bool_t ptWasGiven = (fKin->T() >= 0);
 
   fHadKin->Evaluate();
@@ -354,12 +363,11 @@ Double_t TRadCor::ExclusiveRadiativeTail(void) {
 
   // Deterministic adaptive cubature (Genz-Malik), the same family as the NAG
   // D01FCE the original FORTRAN uses, with matching settings: relative
-  // tolerance 1e-3, up to 1e5 points. This replaces MISER Monte Carlo capped at
-  // 20000 calls, which agreed with the reference only to ~1.4e-3 here; the
-  // integrand is sharply peaked at the collinear singularities tau_s = -Q2/S
-  // and tau_p = Q2/X, spanning five orders of magnitude inside a single
-  // sub-box, which a stratified sampler resolves poorly. Adaptive cubature
-  // brings the agreement to ~5e-5.
+  // tolerance 1e-3, up to 1e5 points. The integrand is sharply peaked at the
+  // collinear singularities tau_s = -Q2/S and tau_p = Q2/X, spanning five
+  // orders of magnitude inside a single sub-box; adaptive subdivision resolves
+  // these peaks, where a Monte Carlo sampler at this budget does not (it
+  // agrees with the FORTRAN to ~1e-3, cubature to ~5e-5).
   ROOT::Math::IntegratorMultiDim ig(ROOT::Math::IntegrationMultiDim::kADAPTIVE, 1E-12, 1E-3, 100000);
   TRV2TR rv2tr(this);
   ig.SetFunction(rv2tr);

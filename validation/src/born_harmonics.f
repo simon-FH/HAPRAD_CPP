@@ -1,9 +1,9 @@
 C     born_harmonics -- the Born cross section of HAPRAD 2.0 at many points, and
 C     its three azimuthal harmonics.
 C
-C     For PLAN.md Phase 2.3: building a structure-function table from HAPRAD
-C     2.0's own PDF x FF model, so that the C++ and the FORTRAN can be compared
-C     with the SAME physics underneath.
+C     Used to build a structure-function table from HAPRAD 2.0's own PDF x FF
+C     model (make_model_table), so that the C++ and the FORTRAN can be
+C     compared with the SAME physics underneath.
 C
 C     BORNSET is the setup part of ihaprad() and BORNPHI the vv10/vv20 part of
 C     sphih(), copied with the print statements removed; everything after them

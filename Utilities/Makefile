@@ -41,8 +41,8 @@ $(BINDIR)/%:$(BINDIR)/%.o
 	$(LD) $(LDFLAGS) $^ $(LIBS) -o $@
 
 # Rebuild when the library's headers or the shared headers change: the programs
-# inline accessors of library classes, and a stale object reads them at the old
-# offsets (it happened: garbage lookup counters after TSemiInclusiveModel grew).
+# inline accessors of library classes, and a stale object would read members at
+# their old offsets.
 LIBHDRS := $(wildcard $(HAPRAD_CPP)/*.h) $(wildcard ./include/*.hxx)
 
 $(BINDIR)/%.o:$(SRCDIR)/%.cxx $(LIBHDRS)

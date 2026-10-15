@@ -76,9 +76,9 @@ void ExclusiveModel(Double_t q2m, Double_t wm, Double_t csthcm, Double_t& st, Do
 
   static Int_t nc = 0;
   if (nc == 0) {
-    // The MAID grid is read from the WORKING DIRECTORY. It used to be read
-    // unchecked: without the file the arrays stayed zero and the exclusive
-    // radiative tail came out as exactly 0, silently.
+    // The MAID grid is read once, from the WORKING DIRECTORY. A missing or
+    // short file throws: unread entries would stay zero and make the exclusive
+    // radiative tail exactly 0 without any sign of a problem.
     std::ifstream in;
     in.open("pi_n_maid.dat");
     if (!in)

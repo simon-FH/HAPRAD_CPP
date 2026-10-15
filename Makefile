@@ -1,8 +1,6 @@
 SHELL = /bin/bash
 
-# ifndef ROOTSYS
-#     $(error "ERROR: please, set ROOT")
-# endif
+# ROOT is found through root-config on PATH; ROOTSYS need not be set.
 
 .DELETE_ON_ERROR:
 
