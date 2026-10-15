@@ -30,7 +30,15 @@ Bool_t SameBinning(const THnD* a, const THnD* b) {
 }  // namespace
 
 TSemiInclusiveModel::TSemiInclusiveModel()
-    : fPtReduced(false), fInterpolate(true), fLogA(false), fNLookups(0), fNOutOfRange(0), fNEmptyCell(0), fNUnphysical(0) {
+    : fPtReduced(false),
+      fInterpolate(true),
+      fLogA(false),
+      fSecondNeighbours(true),
+      fNLookups(0),
+      fNOutOfRange(0),
+      fNEmptyCell(0),
+      fNSecondNeighbour(0),
+      fNUnphysical(0) {
   for (Int_t i = 0; i < 4; ++i) fVar[i] = kQ2;
 }
 
@@ -42,6 +50,10 @@ void TSemiInclusiveModel::Clear() {
   fAc.reset();
   fAcc.reset();
   fFitted.reset();
+  fFillA.reset();
+  fFillAc.reset();
+  fFillAcc.reset();
+  fFillOk.clear();
   fPtReduced = false;
   fLogA = false;
 }
@@ -50,6 +62,7 @@ void TSemiInclusiveModel::ResetCounters() const {
   fNLookups = 0;
   fNOutOfRange = 0;
   fNEmptyCell = 0;
+  fNSecondNeighbour = 0;
   fNUnphysical = 0;
 }
 
@@ -139,7 +152,68 @@ Bool_t TSemiInclusiveModel::Load(const char* path) {
   fPtReduced = reduced;
   fLogA = logA;
   fPath = path;
+  BuildSecondNeighbours();
   return true;
+}
+
+void TSemiInclusiveModel::BuildSecondNeighbours() {
+  // The filled copy used for second neighbours: fitted cells as they are; each
+  // unfitted cell gets the average of the fitted cells in the 3x3x3x3 block
+  // around it, weighted by 1 / (squared distance in cells). Averaged in log A
+  // and the ratios Ac/A, Acc/A for a log table, as the interpolation does.
+  fFillA.reset(static_cast<THnD*>(fA->Clone("A_second")));
+  fFillAc.reset(static_cast<THnD*>(fAc->Clone("Ac_second")));
+  fFillAcc.reset(static_cast<THnD*>(fAcc->Clone("Acc_second")));
+  fFillOk.assign(fA->GetNbins(), 0);
+  auto usable = [&](Long64_t bin) {
+    if (fFitted && fFitted->GetBinContent(bin) == 0.) return false;
+    return !fLogA || fA->GetBinContent(bin) > 0.;
+  };
+  Int_t n[4];
+  for (Int_t d = 0; d < 4; ++d) n[d] = fA->GetAxis(d)->GetNbins();
+  Int_t idx[4], nb[4];
+  for (idx[0] = 1; idx[0] <= n[0]; ++idx[0])
+    for (idx[1] = 1; idx[1] <= n[1]; ++idx[1])
+      for (idx[2] = 1; idx[2] <= n[2]; ++idx[2])
+        for (idx[3] = 1; idx[3] <= n[3]; ++idx[3]) {
+          const Long64_t bin = fA->GetBin(idx);
+          if (usable(bin)) {
+            fFillOk[bin] = 1;
+            continue;
+          }
+          Double_t sw = 0., sA = 0., sAc = 0., sAcc = 0.;
+          for (Int_t k = 0; k < 81; ++k) {
+            Int_t m = k, dist2 = 0;
+            Bool_t inside = true;
+            for (Int_t d = 0; d < 4; ++d) {
+              const Int_t step = m % 3 - 1;
+              m /= 3;
+              nb[d] = idx[d] + step;
+              dist2 += step * step;
+              if (nb[d] < 1 || nb[d] > n[d]) inside = false;
+            }
+            if (!inside || dist2 == 0) continue;
+            const Long64_t nbin = fA->GetBin(nb);
+            if (!usable(nbin)) continue;
+            const Double_t wc = 1. / dist2, a = fA->GetBinContent(nbin);
+            sw += wc;
+            if (fLogA) {
+              sA += wc * std::log(a);
+              sAc += wc * fAc->GetBinContent(nbin) / a;
+              sAcc += wc * fAcc->GetBinContent(nbin) / a;
+            } else {
+              sA += wc * a;
+              sAc += wc * fAc->GetBinContent(nbin);
+              sAcc += wc * fAcc->GetBinContent(nbin);
+            }
+          }
+          if (sw <= 0.) continue;
+          const Double_t a = fLogA ? std::exp(sA / sw) : sA / sw;
+          fFillA->SetBinContent(bin, a);
+          fFillAc->SetBinContent(bin, fLogA ? a * sAc / sw : sAc / sw);
+          fFillAcc->SetBinContent(bin, fLogA ? a * sAcc / sw : sAcc / sw);
+          fFillOk[bin] = 1;
+        }
 }
 
 void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Double_t Z, Double_t pt2, Double_t mx2,
@@ -206,36 +280,49 @@ void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Doub
   }
   if (outside) ++fNOutOfRange;
 
-  // Sum over the 2^4 corners, dropping unfitted ones and renormalising.
+  // Sum over the 2^4 corners, dropping unusable ones and renormalising.
   Double_t sumW = 0., sA = 0., sAc = 0., sAcc = 0.;
-  Int_t idx[4];
-  for (Int_t corner = 0; corner < 16; ++corner) {
-    Double_t wc = 1.;
-    for (Int_t d = 0; d < 4; ++d) {
-      const Bool_t up = (corner >> d) & 1;
-      if (up && hi[d] == lo[d]) {
-        wc = 0.;
-        break;
+  auto corners = [&](const THnD* tA, const THnD* tAc, const THnD* tAcc, const std::vector<char>* usable) {
+    Int_t idx[4];
+    for (Int_t corner = 0; corner < 16; ++corner) {
+      Double_t wc = 1.;
+      for (Int_t d = 0; d < 4; ++d) {
+        const Bool_t up = (corner >> d) & 1;
+        if (up && hi[d] == lo[d]) {
+          wc = 0.;
+          break;
+        }
+        idx[d] = up ? hi[d] : lo[d];
+        wc *= up ? w[d] : 1. - w[d];
       }
-      idx[d] = up ? hi[d] : lo[d];
-      wc *= up ? w[d] : 1. - w[d];
+      if (wc == 0.) continue;
+      const Long64_t bin = tA->GetBin(idx);
+      if (usable ? !(*usable)[bin] : (fFitted && fFitted->GetBinContent(bin) == 0.)) continue;
+      const Double_t a = tA->GetBinContent(bin);
+      if (fLogA) {
+        if (!(a > 0.)) continue;
+        sumW += wc;
+        sA += wc * std::log(a);
+        sAc += wc * tAc->GetBinContent(bin) / a;
+        sAcc += wc * tAcc->GetBinContent(bin) / a;
+      } else {
+        sumW += wc;
+        sA += wc * a;
+        sAc += wc * tAc->GetBinContent(bin);
+        sAcc += wc * tAcc->GetBinContent(bin);
+      }
     }
-    if (wc == 0.) continue;
-    const Long64_t bin = fA->GetBin(idx);
-    if (fFitted && fFitted->GetBinContent(bin) == 0.) continue;
-    const Double_t a = fA->GetBinContent(bin);
-    if (fLogA) {
-      if (!(a > 0.)) continue;
-      sumW += wc;
-      sA += wc * std::log(a);
-      sAc += wc * fAc->GetBinContent(bin) / a;
-      sAcc += wc * fAcc->GetBinContent(bin) / a;
-    } else {
-      sumW += wc;
-      sA += wc * a;
-      sAc += wc * fAc->GetBinContent(bin);
-      sAcc += wc * fAcc->GetBinContent(bin);
-    }
+  };
+  corners(fA.get(), fAc.get(), fAcc.get(), nullptr);
+  // Second neighbours (decision of the port's author, October 2026): when none
+  // of the 16 surrounding cell centres is fitted, interpolate the same way in
+  // the filled copy of the table built at Load(), in which every unfitted cell
+  // holds the average of the fitted cells next to it. Seen from the point this
+  // reaches the second ring of cells; it stays continuous, which the inner R
+  // integral needs, and costs no more than an ordinary lookup.
+  if (sumW <= 0. && fSecondNeighbours && fFillA) {
+    corners(fFillA.get(), fFillAc.get(), fFillAcc.get(), &fFillOk);
+    if (sumW > 0.) ++fNSecondNeighbour;
   }
   if (sumW <= 0.) {
     ++fNEmptyCell;

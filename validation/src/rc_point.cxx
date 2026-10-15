@@ -151,11 +151,13 @@ int main(int argc, char** argv) {
     emit("f2", rc.GetFactor2());
     emit("f3", rc.GetFactor3());
     // Table diagnostics for this call: how many structure-function lookups the
-    // integrals made, and how many fell outside the table or in an empty cell.
+    // integrals made, and how many fell outside the table, were filled from
+    // second neighbours, or found no fitted cell at all.
     if (const TSemiInclusiveModel* m = rc.GetSemiInclusiveModel()) {
       emit("sf_lookups", m->NLookups());
       emit("sf_oor", m->NOutOfRange());
       emit("sf_empty", m->NEmptyCell());
+      emit("sf_second", m->NSecondNeighbour());
       emit("sf_unphys", m->NUnphysical());
     }
   }

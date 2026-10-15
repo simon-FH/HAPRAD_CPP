@@ -40,7 +40,12 @@ $(BINDIR)/%:$(BINDIR)/%.o
 	@echo "Doing application" $@
 	$(LD) $(LDFLAGS) $^ $(LIBS) -o $@
 
-$(BINDIR)/%.o:$(SRCDIR)/%.cxx
+# Rebuild when the library's headers or the shared headers change: the programs
+# inline accessors of library classes, and a stale object reads them at the old
+# offsets (it happened: garbage lookup counters after TSemiInclusiveModel grew).
+LIBHDRS := $(wildcard $(HAPRAD_CPP)/*.h) $(wildcard ./include/*.hxx)
+
+$(BINDIR)/%.o:$(SRCDIR)/%.cxx $(LIBHDRS)
 	$(MKDIR_P) $(BINDIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 

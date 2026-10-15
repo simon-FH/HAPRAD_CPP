@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 //______________________________________________________________________________
 //
@@ -69,8 +70,15 @@
 //
 //   Beyond the outermost cell centres the value is held constant (clamped). A
 //   point outside the table's edges is counted as out of range. Corners that fall
-//   in unfitted cells are dropped and the remaining weights renormalised; if no
-//   corner is fitted the amplitudes are zero and the point is counted as empty.
+//   in unfitted cells are dropped and the remaining weights renormalised. If no
+//   corner is fitted, the second neighbours are used: the same interpolation in
+//   a filled copy of the table, made at Load(), in which every unfitted cell
+//   holds the average of the fitted cells next to it (its 3x3x3x3 block,
+//   weighted by 1 / squared distance in cells). Seen from the point, that
+//   reaches the second ring of cells; it is continuous and costs no more than
+//   an ordinary lookup (counted as NSecondNeighbour). Only if the filled copy
+//   has no usable corner either are the amplitudes zero and the point counted
+//   as empty.
 //   Both are counted because the tail integrals sample shifted kinematics well
 //   outside any measured region, and the size of that effect has to be known
 //   before deciding what to do about it.
@@ -90,6 +98,9 @@ class TSemiInclusiveModel {
 
   void SetInterpolation(Bool_t on) { fInterpolate = on; }
   Bool_t GetInterpolation() const { return fInterpolate; }
+  // On by default; off restores the behaviour before October 2026, for comparison.
+  void SetSecondNeighbours(Bool_t on) { fSecondNeighbours = on; }
+  Bool_t GetSecondNeighbours() const { return fSecondNeighbours; }
 
   // Same argument list as the original free function. Y and pl are unused.
   void Evaluate(Double_t q2, Double_t X, Double_t Y, Double_t Z, Double_t pt2, Double_t mx2, Double_t pl, Double_t& A,
@@ -100,26 +111,34 @@ class TSemiInclusiveModel {
   Long64_t NLookups() const { return fNLookups; }
   Long64_t NOutOfRange() const { return fNOutOfRange; }
   Long64_t NEmptyCell() const { return fNEmptyCell; }
+  Long64_t NSecondNeighbour() const { return fNSecondNeighbour; }
   Long64_t NUnphysical() const { return fNUnphysical; }
 
  private:
   enum EVariable { kQ2, kX, kNu, kZ, kPt, kPt2 };
 
   void Clear();
+  void BuildSecondNeighbours();
 
   std::string fPath;
   std::unique_ptr<THnD> fA;
   std::unique_ptr<THnD> fAc;
   std::unique_ptr<THnD> fAcc;
   std::unique_ptr<THnD> fFitted;
+  std::unique_ptr<THnD> fFillA;  // filled copies for second neighbours
+  std::unique_ptr<THnD> fFillAc;
+  std::unique_ptr<THnD> fFillAcc;
+  std::vector<char> fFillOk;  // per global bin: usable in the filled copy
   EVariable fVar[4];
   Bool_t fPtReduced;
   Bool_t fInterpolate;
   Bool_t fLogA;
+  Bool_t fSecondNeighbours;
 
   mutable Long64_t fNLookups;
   mutable Long64_t fNOutOfRange;
   mutable Long64_t fNEmptyCell;
+  mutable Long64_t fNSecondNeighbour;
   mutable Long64_t fNUnphysical;
 };
 
