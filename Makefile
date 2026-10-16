@@ -69,8 +69,10 @@ lib: checkdirs $(SLIB_DIR)/$(SH_LIB)
 
 include Makefile_depends
 
+# ROOT looks for the dictionary's _rdict.pcm next to the library that loads it.
 $(SLIB_DIR)/$(SH_LIB): $(SRC_OBJ) $(DICT_OBJ) $(FSRC_OBJ)
 	$(ROOTLDFLAGS) $(SOFLAGS) $^ $(LIBS) -o $@
+	cp $(DICT_DIR)/*_rdict.pcm $(SLIB_DIR)/
 
 $(DICT_DIR)/%Dict.cxx: %.h
 	$(ROOTCINT) -f $@ -c $(<F) $(<F:%.h=%LinkDef.h)
