@@ -39,7 +39,11 @@ if [ "${RC_JOB_INNER:-}" = 1 ]; then
     shopt -s nullglob
     local pat=${DATA_PATTERN//%RUN%/$1}
     pat=${pat//%RUNNO%/$((10#$1))}
-    FILES=($pat)
+    pat=${pat//%TARGET%/$TARGET}
+    # A pattern without wildcards expands to itself: keep existing files only.
+    FILES=()
+    local f
+    for f in $pat; do [ -e "$f" ] && FILES+=("$f"); done
     shopt -u nullglob
     if [ ${#FILES[@]} -eq 0 ]; then
       echo "no input files match $pat" >&2

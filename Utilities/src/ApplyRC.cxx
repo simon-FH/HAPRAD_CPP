@@ -39,6 +39,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <memory>
 #include <string>
 
 // Load config and grid and check that they agree; then, entry by entry, place
@@ -79,6 +80,14 @@ int main(int argc, char** argv) {
   if (chain.Add(argv[3]) != 1) {
     fprintf(stderr, "ApplyRC takes exactly one input file, so that the friend lines up with it\n");
     return 1;
+  }
+  // TChain::Add accepts a file name without opening it.
+  {
+    std::unique_ptr<TFile> f(TFile::Open(argv[3], "READ"));
+    if (!f || f->IsZombie() || !f->Get<TTree>("DT")) {
+      fprintf(stderr, "%s: cannot read its DT tree\n", argv[3]);
+      return 1;
+    }
   }
   rge::Event e;
   if (!rge::BindEvent(chain, e)) return 1;

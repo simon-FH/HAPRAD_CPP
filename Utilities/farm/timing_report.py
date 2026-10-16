@@ -98,9 +98,9 @@ def cpu(t):
 
 
 def swif_time(sec):
-    """A swif2 -time value covering sec: whole hours, or 30-minute steps below 2h."""
+    """A swif2 -time value covering sec: 30min, 1h, or whole hours above."""
     if sec <= 1800:
-        return "30m"
+        return "30min"
     if sec <= 3600:
         return "1h"
     return "%dh" % math.ceil(sec / 3600.)

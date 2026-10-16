@@ -101,6 +101,17 @@ int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, i
     chain.Add(in[i]);
     sources += TString(in[i]) + "\n";
   }
+  // TChain::Add accepts a file name without opening it: check every file, so
+  // that a missing or unreadable input stops the job instead of adding nothing.
+  if (chain.GetListOfFiles()->GetEntries() == 0) {
+    fprintf(stderr, "no input files\n");
+    return 1;
+  }
+  for (TObject* el : *chain.GetListOfFiles())
+    if (Entries(el->GetTitle(), "DT") < 0) {
+      fprintf(stderr, "%s: cannot read its DT tree\n", el->GetTitle());
+      return 1;
+    }
   // ==== RC friends (only with --rc-friend) ====
   // RC weights from the previous iteration, one friend file per input file. A
   // friend chain lines up entry by entry only if every file pair does: checked.
