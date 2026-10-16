@@ -92,6 +92,7 @@ done < "$RUNLIST"
 shopt -s nullglob
 for r in "${RUNS[@]}"; do
   pat=${DATA_PATTERN//%RUN%/$r}
+  pat=${pat//%RUNNO%/$((10#$r))}
   files=($pat)
   [ ${#files[@]} -gt 0 ] || fail "run $r: no files match $pat"
   echo "run $r: ${#files[@]} files"

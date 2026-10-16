@@ -38,6 +38,7 @@ if [ "${RC_JOB_INNER:-}" = 1 ]; then
   run_files() {
     shopt -s nullglob
     local pat=${DATA_PATTERN//%RUN%/$1}
+    pat=${pat//%RUNNO%/$((10#$1))}
     FILES=($pat)
     shopt -u nullglob
     if [ ${#FILES[@]} -eq 0 ]; then
