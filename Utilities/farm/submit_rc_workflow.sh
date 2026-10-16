@@ -129,6 +129,16 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 [ ${#RUNS[@]} -gt 0 ] || fail "no run has input files"
 
+# ==== The swif2 workflow, before anything is written ====
+# If creating it fails (e.g. no scientific-computing certificate: `jcert
+# -create`), nothing is left behind. If the submission stops after this, the
+# exit message says how to remove the partial workflow and its directory.
+if [ "$MODE" = swif2 ]; then
+  swif2 create "$NAME" || fail "swif2 create $NAME failed; nothing was written"
+  SUBMITTED=0
+  trap '[ "$SUBMITTED" = 1 ] || echo "ERROR: submission stopped partway. Remove it with: swif2 cancel $NAME -delete; rm -rf $OUT" >&2' EXIT
+fi
+
 # ==== Workflow directory: everything the jobs read, frozen ====
 # A dry run writes these to a temporary directory instead, removed on exit.
 META=$OUT
@@ -182,10 +192,7 @@ end_stage() {
   STAGE=()
 }
 
-case $MODE in
-  swif2) swif2 create "$NAME" ;;
-  dry) echo "swif2 create $NAME" ;;
-esac
+[ "$MODE" = dry ] && echo "swif2 create $NAME"
 
 # ==== The iterations ====
 for ((k = 0; k < ITERATIONS; k++)); do
@@ -220,6 +227,7 @@ njobs=$(($(wc -l < "$META/jobs.tsv") - 1))
 case $MODE in
   swif2)
     swif2 run "$NAME"
+    SUBMITTED=1
     echo "workflow $NAME: $njobs jobs submitted; output in $OUT"
     echo "  swif2 status $NAME        progress"
     echo "  $HERE/timing_report.py $OUT   benchmark, when done"
