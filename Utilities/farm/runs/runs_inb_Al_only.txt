@@ -1,0 +1,2 @@
+# inb_Al_only: 1 cooked runs, 0.05 G events (1 prod)
+020506  # prod        52.0 M

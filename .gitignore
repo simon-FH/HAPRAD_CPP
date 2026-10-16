@@ -13,3 +13,6 @@ fit-results*
 validation/bin
 validation/.obj
 validation/data
+
+# Run lists for the farm workflow
+!Utilities/farm/runs/*.txt

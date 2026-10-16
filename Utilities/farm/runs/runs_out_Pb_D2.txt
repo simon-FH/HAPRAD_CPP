@@ -1,0 +1,7 @@
+# out_Pb_D2: 6 cooked runs, 0.51 G events (6 prod)
+020520  # prod        85.4 M
+020521  # prod       101.1 M
+020522  # prod       108.4 M
+020523  # prod       106.9 M
+020524  # prod       100.8 M
+020525  # prod         3.5 M

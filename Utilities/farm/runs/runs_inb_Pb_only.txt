@@ -1,0 +1,11 @@
+# inb_Pb_only: 10 cooked runs, 0.19 G events (2 lumi, 5 prod, 3 test_cook)
+020269  # lumi         1.5 M
+020270  # lumi        20.4 M
+020271  # prod         3.7 M
+020272  # prod        36.3 M
+020273  # prod        48.6 M
+020274  # prod        53.0 M
+020275  # prod        19.9 M
+020279  # test_cook    1.5 M
+020280  # test_cook    0.6 M
+020281  # test_cook    0.3 M

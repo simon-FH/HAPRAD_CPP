@@ -1,0 +1,11 @@
+# out_C_D2: 10 cooked runs, 0.70 G events (2 maybe, 8 prod)
+020508  # maybe       27.0 M
+020509  # prod       100.5 M
+020510  # prod        37.1 M
+020512  # prod        92.5 M
+020514  # maybe        4.4 M
+020515  # prod       100.8 M
+020516  # prod        34.9 M
+020517  # prod       100.1 M
+020518  # prod       100.2 M
+020519  # prod        99.6 M
