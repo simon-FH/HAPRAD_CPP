@@ -86,6 +86,31 @@ changes by less than `--tol` at 95% of the grid nodes; the last iteration's
 costs one RC grid; `--resume` keeps what is already there.
 `validation/closure_iteration.py` is its closure test.
 
+## On the JLab farm (swif2)
+
+`farm/` runs the same iteration as a swif2 workflow, one per target: a fill
+job per run, one fit, the RC grid in `NCHUNKS` chunk jobs, one merge, and an
+`ApplyRC` job per run, with dependencies so that each iteration follows the
+last. Every job records its timing; `timing_report.py` turns those records into
+a benchmark.
+
+1. Build on ifarm (`make` here and in `..`), then edit `farm/farm.cfg`: the
+   repository path, `ENV_SETUP` (whatever puts ROOT on PATH), `DATA_PATTERN`,
+   `OUT_BASE`, the config.
+2. Check the job list without submitting:
+   `farm/submit_rc_workflow.sh LD2 runs_test.txt -i 2 --dry-run`
+3. Benchmark on 2-3 runs with the production config and grid:
+   `farm/submit_rc_workflow.sh LD2 runs_test.txt -i 2`, then, when
+   `swif2 status <workflow>` shows it done,
+   `farm/timing_report.py <OUT_BASE>/<workflow> --runs <number of runs in the full list>`.
+   It prints per-step wall time, CPU, memory and queue wait, the expected cost
+   of the full list, and resource settings for `farm.cfg`.
+4. Then the full run list.
+
+`--local [jobs]` runs the same jobs on the current machine instead, for testing
+the workflow without the farm. Outputs land in `<OUT_BASE>/<workflow>/iter_k/`;
+the weights for the analysis are the last iteration's `friends/<run>/`.
+
 ## The EG2 chain (CLAS6)
 
 The programs below are the original EG2 analysis chain.
