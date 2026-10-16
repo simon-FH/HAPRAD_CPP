@@ -94,13 +94,16 @@ job per run, one fit, the RC grid in `NCHUNKS` chunk jobs, one merge, and an
 last. Every job records its timing; `timing_report.py` turns those records into
 a benchmark.
 
-1. Build on ifarm (`make` here and in `..`), then edit `farm/farm.cfg`: the
-   repository path, `ENV_SETUP` (whatever puts ROOT on PATH), `DATA_PATTERN`,
-   `OUT_BASE`, the config.
+1. Build on ifarm with the ROOT that `farm/farm.cfg` loads in the jobs
+   (`module use /cvmfs/oasis.opensciencegrid.org/jlab/scicomp/sw/el9/modulefiles`,
+   `module load root/6.30.06-gcc11.4.0`; then `make` in `..` and here, with
+   `HAPRAD_CPP` set), and check the paths in `farm/farm.cfg`.
 2. Check the job list without submitting:
-   `farm/submit_rc_workflow.sh LD2 runs_test.txt -i 2 --dry-run`
+   `farm/submit_rc_workflow.sh C_D2 farm/runs/runs_bench_C_D2.txt -i 2 --dry-run`.
+   The first argument fills `%TARGET%` in `DATA_PATTERN`. A run without input
+   files stops the submission; `--skip-missing` leaves such runs out instead.
 3. Benchmark on 2-3 runs with the production config and grid:
-   `farm/submit_rc_workflow.sh LD2 runs_test.txt -i 2`, then, when
+   `farm/submit_rc_workflow.sh C_D2 farm/runs/runs_bench_C_D2.txt -i 2`, then, when
    `swif2 status <workflow>` shows it done,
    `farm/timing_report.py <OUT_BASE>/<workflow> --runs <number of runs in the full list>`.
    It prints per-step wall time, CPU, memory and queue wait, the expected cost

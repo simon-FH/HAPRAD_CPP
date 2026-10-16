@@ -3,11 +3,16 @@
 #
 #   ./submit_rc_workflow.sh <target> <run list> [options]
 #
+#   <target> names the workflow and fills %TARGET% in DATA_PATTERN, e.g. C_D2.
+#
 #     -s <farm.cfg>    settings (default: farm.cfg next to this script)
 #     -C <config>      analysis config, overriding CONFIG in the settings
 #     -i <n>           RC iterations, overriding ITERATIONS
 #     -c <n>           grid chunks per iteration, overriding NCHUNKS
 #     -n <name>        workflow name (default: rc_<target>_<date>_<time>)
+#     -d <pattern>     input pattern, overriding DATA_PATTERN (e.g. outbending)
+#     --skip-missing   leave out runs without input files, with a warning,
+#                      instead of stopping
 #     --dry-run        print the swif2 commands, submit nothing
 #     --local [jobs]   run the same jobs on this machine instead, stage by
 #                      stage, up to <jobs> at a time (default: all cores)
@@ -35,14 +40,14 @@ HERE=$(dirname "$(readlink -f "$0")")
 
 # ==== Arguments ====
 if [ $# -lt 2 ]; then
-  sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 fi
 TARGET=$1
 RUNLIST=$(readlink -f "$2")
 shift 2
 SETTINGS=$HERE/farm.cfg
-OPT_CONFIG="" OPT_ITER="" OPT_CHUNKS="" NAME="" MODE=swif2 LOCAL_JOBS=$(nproc)
+OPT_CONFIG="" OPT_ITER="" OPT_CHUNKS="" OPT_PATTERN="" NAME="" MODE=swif2 LOCAL_JOBS=$(nproc) SKIP_MISSING=0
 while [ $# -gt 0 ]; do
   case $1 in
     -s) SETTINGS=$(readlink -f "$2"); shift 2 ;;
@@ -50,6 +55,8 @@ while [ $# -gt 0 ]; do
     -i) OPT_ITER=$2; shift 2 ;;
     -c) OPT_CHUNKS=$2; shift 2 ;;
     -n) NAME=$2; shift 2 ;;
+    -d) OPT_PATTERN=$2; shift 2 ;;
+    --skip-missing) SKIP_MISSING=1; shift ;;
     --dry-run) MODE=dry; shift ;;
     --local)
       MODE=local
@@ -64,6 +71,7 @@ source "$SETTINGS"
 [ -n "$OPT_CONFIG" ] && CONFIG=$OPT_CONFIG
 [ -n "$OPT_ITER" ] && ITERATIONS=$OPT_ITER
 [ -n "$OPT_CHUNKS" ] && NCHUNKS=$OPT_CHUNKS
+[ -n "$OPT_PATTERN" ] && DATA_PATTERN=$OPT_PATTERN
 NAME=${NAME:-rc_${TARGET}_$(date +%Y%m%d_%H%M)}
 OUT=$OUT_BASE/$NAME
 RC_JOB=$HERE/rc_job.sh
@@ -80,24 +88,38 @@ done
 [ -e "$OUT" ] && fail "$OUT already exists -- choose another name with -n"
 
 # ---- Runs: six-digit numbers, each with input files ----
-RUNS=()
+LISTED=()
 while read -r line; do
   line=${line%%#*}
   line=${line//[[:space:]]/}
   [ -z "$line" ] && continue
   [[ $line =~ ^[0-9]+$ ]] || fail "not a run number in $RUNLIST: '$line'"
-  RUNS+=("$(printf "%06d" $((10#$line)))")
+  LISTED+=("$(printf "%06d" $((10#$line)))")
 done < "$RUNLIST"
-[ ${#RUNS[@]} -gt 0 ] || fail "no runs in $RUNLIST"
+[ ${#LISTED[@]} -gt 0 ] || fail "no runs in $RUNLIST"
+RUNS=() MISSING=()
 shopt -s nullglob
-for r in "${RUNS[@]}"; do
+for r in "${LISTED[@]}"; do
   pat=${DATA_PATTERN//%RUN%/$r}
   pat=${pat//%RUNNO%/$((10#$r))}
-  files=($pat)
-  [ ${#files[@]} -gt 0 ] || fail "run $r: no files match $pat"
-  echo "run $r: ${#files[@]} files"
+  pat=${pat//%TARGET%/$TARGET}
+  # A pattern without wildcards expands to itself: keep existing files only.
+  files=()
+  for f in $pat; do [ -e "$f" ] && files+=("$f"); done
+  if [ ${#files[@]} -eq 0 ]; then
+    MISSING+=("$r")
+    echo "run $r: NO FILES match $pat"
+  else
+    RUNS+=("$r")
+    echo "run $r: ${#files[@]} file(s)"
+  fi
 done
 shopt -u nullglob
+if [ ${#MISSING[@]} -gt 0 ]; then
+  [ "$SKIP_MISSING" = 1 ] || fail "${#MISSING[@]} run(s) without input files: ${MISSING[*]} (--skip-missing leaves them out)"
+  echo "WARNING: leaving out ${#MISSING[@]} run(s) without input files: ${MISSING[*]}"
+fi
+[ ${#RUNS[@]} -gt 0 ] || fail "no run has input files"
 
 # ==== Workflow directory: everything the jobs read, frozen ====
 # A dry run writes these to a temporary directory instead, removed on exit.
@@ -108,7 +130,8 @@ if [ "$MODE" = dry ]; then
 fi
 mkdir -p "$META/logs" "$META/timing"
 cp "$SETTINGS" "$META/farm.cfg"
-printf '\n# Set by submit_rc_workflow.sh\nCONFIG=%s\nITERATIONS=%s\nNCHUNKS=%s\n' "$OUT/config.cfg" "$ITERATIONS" "$NCHUNKS" >> "$META/farm.cfg"
+printf "\n# Set by submit_rc_workflow.sh\nTARGET=%s\nDATA_PATTERN='%s'\nCONFIG=%s\nITERATIONS=%s\nNCHUNKS=%s\n" \
+  "$TARGET" "$DATA_PATTERN" "$OUT/config.cfg" "$ITERATIONS" "$NCHUNKS" >> "$META/farm.cfg"
 cp "$CONFIG" "$META/config.cfg"
 printf "%s\n" "${RUNS[@]}" > "$META/runs.txt"
 printf "name\tstep\titeration\targ\tafter\n" > "$META/jobs.tsv"
