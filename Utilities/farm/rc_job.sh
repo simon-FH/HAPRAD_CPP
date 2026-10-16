@@ -40,6 +40,8 @@ if [ "${RC_JOB_INNER:-}" = 1 ]; then
     local pat=${DATA_PATTERN//%RUN%/$1}
     pat=${pat//%RUNNO%/$((10#$1))}
     pat=${pat//%TARGET%/$TARGET}
+    pat=${pat//%FIELD%/$FIELD}
+    pat=${pat//%TRACKING%/$TRACKING}
     # A pattern without wildcards expands to itself: keep existing files only.
     FILES=()
     local f

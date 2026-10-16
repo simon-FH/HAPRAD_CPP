@@ -100,8 +100,10 @@ a benchmark.
    `HAPRAD_CPP` set), and check the paths in `farm/farm.cfg`.
 2. Check the job list without submitting:
    `farm/submit_rc_workflow.sh C_D2 farm/runs/runs_bench_C_D2.txt -i 2 --dry-run`.
-   The first argument fills `%TARGET%` in `DATA_PATTERN`. A run without input
-   files stops the submission; `--skip-missing` leaves such runs out instead.
+   The first argument fills `%TARGET%` in `DATA_PATTERN`; `FIELD` (inb/out)
+   and `TRACKING` (dc/dc_fmt, default dc_fmt) fill the rest and can be changed
+   per workflow with `--field` and `--tracking`. A run without input files
+   stops the submission; `--skip-missing` leaves such runs out instead.
 3. Benchmark on 2-3 runs with the production config and grid:
    `farm/submit_rc_workflow.sh C_D2 farm/runs/runs_bench_C_D2.txt -i 2`, then, when
    `swif2 status <workflow>` shows it done,
