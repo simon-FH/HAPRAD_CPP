@@ -1,0 +1,6 @@
+# inb_C_only: 5 cooked runs, 0.22 G events (3 good, 2 test_cook)
+020014  # test_cook   21.7 M
+020015  # test_cook   50.2 M
+020017  # good        51.0 M
+020018  # good        80.5 M
+020019  # good        16.7 M

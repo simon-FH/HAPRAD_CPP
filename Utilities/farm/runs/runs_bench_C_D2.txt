@@ -1,0 +1,4 @@
+# Benchmark: three inbending LD2 + C runs (inb_C_D2), small to large.
+020026  # test_cook  10.0 M  -- also processed locally: its iteration-0 table can be compared
+020133  # prod       63.0 M  -- a typical production run
+020150  # prod       90.0 M  -- one of the largest, to size the per-run job limits
