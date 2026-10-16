@@ -107,6 +107,11 @@ a benchmark.
    of the full list, and resource settings for `farm.cfg`.
 4. Then the full run list.
 
+Run lists are in `farm/runs/`: `rge_runs.tsv` is the RG-E run table (run, events,
+type, cooking workflow, cooked status) and `make_run_lists.py` writes one list
+per target group from it, cooked runs only (`--exclude lumi,test_cook,maybe` to
+drop run types). `runs_bench_C_D2.txt` holds the three benchmark runs.
+
 `--local [jobs]` runs the same jobs on the current machine instead, for testing
 the workflow without the farm. Outputs land in `<OUT_BASE>/<workflow>/iter_k/`;
 the weights for the analysis are the last iteration's `friends/<run>/`.
