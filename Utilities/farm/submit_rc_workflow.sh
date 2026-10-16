@@ -9,8 +9,10 @@
 #     -C <config>      analysis config, overriding CONFIG in the settings
 #     -i <n>           RC iterations, overriding ITERATIONS
 #     -c <n>           grid chunks per iteration, overriding NCHUNKS
-#     -n <name>        workflow name (default: rc_<target>_<date>_<time>)
-#     -d <pattern>     input pattern, overriding DATA_PATTERN (e.g. outbending)
+#     -n <name>        workflow name (default: rc_<field>_<target>_<tracking>_<date>_<time>)
+#     --tracking <t>   dc or dc_fmt, overriding TRACKING
+#     --field <f>      inb or out, overriding FIELD
+#     -d <pattern>     input pattern, overriding DATA_PATTERN
 #     --skip-missing   leave out runs without input files, with a warning,
 #                      instead of stopping
 #     --dry-run        print the swif2 commands, submit nothing
@@ -47,7 +49,7 @@ TARGET=$1
 RUNLIST=$(readlink -f "$2")
 shift 2
 SETTINGS=$HERE/farm.cfg
-OPT_CONFIG="" OPT_ITER="" OPT_CHUNKS="" OPT_PATTERN="" NAME="" MODE=swif2 LOCAL_JOBS=$(nproc) SKIP_MISSING=0
+OPT_CONFIG="" OPT_ITER="" OPT_CHUNKS="" OPT_PATTERN="" OPT_TRACKING="" OPT_FIELD="" NAME="" MODE=swif2 LOCAL_JOBS=$(nproc) SKIP_MISSING=0
 while [ $# -gt 0 ]; do
   case $1 in
     -s) SETTINGS=$(readlink -f "$2"); shift 2 ;;
@@ -56,6 +58,8 @@ while [ $# -gt 0 ]; do
     -c) OPT_CHUNKS=$2; shift 2 ;;
     -n) NAME=$2; shift 2 ;;
     -d) OPT_PATTERN=$2; shift 2 ;;
+    --tracking) OPT_TRACKING=$2; shift 2 ;;
+    --field) OPT_FIELD=$2; shift 2 ;;
     --skip-missing) SKIP_MISSING=1; shift ;;
     --dry-run) MODE=dry; shift ;;
     --local)
@@ -72,7 +76,9 @@ source "$SETTINGS"
 [ -n "$OPT_ITER" ] && ITERATIONS=$OPT_ITER
 [ -n "$OPT_CHUNKS" ] && NCHUNKS=$OPT_CHUNKS
 [ -n "$OPT_PATTERN" ] && DATA_PATTERN=$OPT_PATTERN
-NAME=${NAME:-rc_${TARGET}_$(date +%Y%m%d_%H%M)}
+[ -n "$OPT_TRACKING" ] && TRACKING=$OPT_TRACKING
+[ -n "$OPT_FIELD" ] && FIELD=$OPT_FIELD
+NAME=${NAME:-rc_${FIELD}_${TARGET}_${TRACKING}_$(date +%Y%m%d_%H%M)}
 OUT=$OUT_BASE/$NAME
 RC_JOB=$HERE/rc_job.sh
 
@@ -103,6 +109,8 @@ for r in "${LISTED[@]}"; do
   pat=${DATA_PATTERN//%RUN%/$r}
   pat=${pat//%RUNNO%/$((10#$r))}
   pat=${pat//%TARGET%/$TARGET}
+  pat=${pat//%FIELD%/$FIELD}
+  pat=${pat//%TRACKING%/$TRACKING}
   # A pattern without wildcards expands to itself: keep existing files only.
   files=()
   for f in $pat; do [ -e "$f" ] && files+=("$f"); done
@@ -130,8 +138,8 @@ if [ "$MODE" = dry ]; then
 fi
 mkdir -p "$META/logs" "$META/timing"
 cp "$SETTINGS" "$META/farm.cfg"
-printf "\n# Set by submit_rc_workflow.sh\nTARGET=%s\nDATA_PATTERN='%s'\nCONFIG=%s\nITERATIONS=%s\nNCHUNKS=%s\n" \
-  "$TARGET" "$DATA_PATTERN" "$OUT/config.cfg" "$ITERATIONS" "$NCHUNKS" >> "$META/farm.cfg"
+printf "\n# Set by submit_rc_workflow.sh\nTARGET=%s\nFIELD=%s\nTRACKING=%s\nDATA_PATTERN='%s'\nCONFIG=%s\nITERATIONS=%s\nNCHUNKS=%s\n" \
+  "$TARGET" "$FIELD" "$TRACKING" "$DATA_PATTERN" "$OUT/config.cfg" "$ITERATIONS" "$NCHUNKS" >> "$META/farm.cfg"
 cp "$CONFIG" "$META/config.cfg"
 printf "%s\n" "${RUNS[@]}" > "$META/runs.txt"
 printf "name\tstep\titeration\targ\tafter\n" > "$META/jobs.tsv"
