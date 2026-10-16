@@ -62,6 +62,7 @@ struct Config {
 // present all five must be. Returns false, with a message, on a missing or
 // malformed key.
 inline bool LoadConfig(const char* path, Config& c) {
+  // ---- Keep the verbatim text, written into every output ----
   std::ifstream in(path);
   if (!in) {
     fprintf(stderr, "cannot read config %s\n", path);
@@ -73,6 +74,7 @@ inline bool LoadConfig(const char* path, Config& c) {
 
   try {
     ConfigFile cf(path);
+    // ---- Beam, particle and cuts ----
     c.E = cf.read<Double_t>("beam_energy");
     c.Etol = cf.read<Double_t>("beam_energy_tolerance", 0.005);
     c.pid = cf.read<Int_t>("pid", 211);
@@ -85,6 +87,7 @@ inline bool LoadConfig(const char* path, Config& c) {
     c.Mxmin = cf.read<Double_t>("Mx_min");
     c.vzmin = cf.read<Double_t>("vz_min", -1e9);
     c.vzmax = cf.read<Double_t>("vz_max", 1e9);
+    // ---- Fit thresholds, weights, luminosity ----
     c.fitMinPhiBins = cf.read<Int_t>("fit_min_phi_bins", 4);
     c.fitMinEvents = cf.read<Double_t>("fit_min_events", 50.);
     c.weightBranch = cf.read<std::string>("weight_branch", "");
@@ -93,6 +96,7 @@ inline bool LoadConfig(const char* path, Config& c) {
       fprintf(stderr, "luminosity must be positive\n");
       return false;
     }
+    // ---- Table binning (required) ----
     for (Int_t d = 0; d < 5; ++d) {
       std::istringstream b(cf.read<std::string>(kTableBinKey[d]));
       if (!(b >> c.n[d] >> c.lo[d] >> c.hi[d]) || c.n[d] < 1 || !(c.hi[d] > c.lo[d])) {
@@ -100,6 +104,7 @@ inline bool LoadConfig(const char* path, Config& c) {
         return false;
       }
     }
+    // ---- RC grid nodes (optional as a group) and weight options ----
     c.hasRCGrid = cf.keyExists(kRCNodeKey[0]);
     for (Int_t d = 0; c.hasRCGrid && d < 5; ++d) {
       std::istringstream b(cf.read<std::string>(kRCNodeKey[d]));

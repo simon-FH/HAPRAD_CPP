@@ -106,6 +106,7 @@ int main(int argc, char** argv) {
   // -------------------------------------------- cross sections, RC (RES)
   printf("### BEGIN RES\n");
   {
+    // ---- The full RC calculation, with the table if one is given ----
     TRadCor rc;
     // Structure-function table: HAPRAD_SI_TABLE=<path>. Without one the
     // amplitudes are zero, and so are sigma_Born and every RC factor.
@@ -145,6 +146,7 @@ int main(int argc, char** argv) {
       printf("### END EXC\n");
     }
 
+    // ---- Results ----
     emit("kin_ok", kin_ok);
     emit("sib", rc.GetSigBorn());
     emit("sig_obs", rc.GetSigObs());

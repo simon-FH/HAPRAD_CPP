@@ -67,6 +67,7 @@ def main():
     absp = lambda p: os.path.realpath(p)
     files = [absp(f) for f in args.files]
 
+    # ---- Run the check chunks in parallel and collect their "@" lines ----
     def chunk(i):
         cmd = [MAKERCGRID, "check", absp(args.config), absp(args.grid), absp(args.table), str(args.n), str(i),
                str(args.jobs)] + files
@@ -92,6 +93,7 @@ def main():
         fi, fd = gi[0] + gi[1], gd[0] + gd[1]
         xi, xd = fi + args.naz * gi[2], fd + args.naz * gd[2]
         pts.append(dict(v=v, status=status, cover=cover, noex=(fi - fd) / fd, ex=(xi - xd) / xd, fd=fd, fi=fi))
+    # ---- Optional per-event output ----
     if args.save:
         with open(args.save, "w") as out:
             out.write("# Q2 nu z pt phi status cover rc_noex_direct rc_noex_interp rel_err_noex rel_err_ex\n")
@@ -99,6 +101,7 @@ def main():
                 out.write("%s %d %.4f %.6f %.6f %+.6f %+.6f\n" % (" ".join("%.5g" % x for x in p["v"]), p["status"],
                                                                  p["cover"], p["fd"], p["fi"], p["noex"], p["ex"]))
 
+    # ---- Summary: overall, then per variable, then the worst events ----
     print("events compared: %d  (%d had no direct HAPRAD result)" % (len(pts), nodirect))
     print("\nrelative error, interpolated vs direct")
     print("%-28s %6s   %9s  %9s  %9s  %9s  %9s" % ("", "n", "mean", "median|.|", "68%|.|", "95%|.|", "max|.|"))

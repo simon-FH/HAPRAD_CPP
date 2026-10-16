@@ -159,6 +159,7 @@ Double_t TRadCor::CalculateBorn(Double_t E, Double_t x, Double_t Q2, Double_t z,
   // and tail integrals. A point rejected on kinematics returns 0 and sets the
   // kinematic-error state.
 
+  // ---- Kinematics objects for this point; previous results cleared ----
   delete fKin;
   delete fInv;
   delete fHadKin;
@@ -174,6 +175,7 @@ Double_t TRadCor::CalculateBorn(Double_t E, Double_t x, Double_t Q2, Double_t z,
   fKinError = false;
   fParametersError = false;
 
+  // ---- Born only: no delta factors, no tail integrals ----
   try {
     Initialization();
     TBorn born(this);

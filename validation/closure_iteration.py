@@ -153,6 +153,7 @@ def main():
         run([mpt, "fit", cfg, p(name + "_counts.root"), p(name + ".root")])
         return p(name + ".root")
 
+    # ---- Toy events weighted by HAPRAD 2.0's Born ----
     print("events: %s toy pions weighted by HAPRAD 2.0's Born cross section" % args.n, flush=True)
     with open(p("points.txt"), "w") as f:
         subprocess.run([os.path.join(BIN, "make_weighted_events"), "points", "11", args.n, E, BOX], stdout=f, check=True)
@@ -173,12 +174,14 @@ def main():
     kept = at(root('reweight.C("%s","%s","%s",1)' % (p("events_born.root"), p("events_born_rc.root"), p("events_obs.root"))), "@reweight")
     print("  observed events: %s of %s (the rest are outside the true grid's support)" % (kept[0], kept[2]), flush=True)
 
+    # ---- The loop under test ----
     print("loop: rc_iterate.py on the observed events, %d iterations" % args.iterations, flush=True)
     r = subprocess.run([os.path.join(UTIL, "rc_iterate.py"), cfg, p("loop"), p("events_obs.root"),
                         "--max-iter", str(args.iterations), "--tol", "0", "--jobs", jobs], capture_output=True, text=True)
     if not os.path.exists(p("loop", "iter_%d" % (args.iterations - 1), "grid.root")):
         sys.exit("rc_iterate failed:\n" + r.stdout + r.stderr)
 
+    # ---- Each iteration against the truth ----
     print("\nagainst the truth (cells / nodes valid in both; the true table has %s fitted cells):"
           % at(root('cmptable.C("%s","%s")' % (truth, truth)), "@table")[2])
     print("  table: A_k/A_true - 1 as |.| median, |.| 95%, mean; Ac/A and Acc/A differences as |.| median, |.| 95%")

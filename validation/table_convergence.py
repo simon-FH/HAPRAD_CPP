@@ -85,11 +85,13 @@ def main():
     args = ap.parse_args()
     grids = GRIDS + [("custom %s" % g, g) for g in (args.grid or [])]
 
+    # ---- FORTRAN once per point ----
     print("FORTRAN reference (full calculation, its own model) ...")
     ref = [at("haprad2_point", p) for p in POINTS]
 
     tmpdir = tempfile.TemporaryDirectory(prefix="tblconv_")  # removed when main() returns
     tmp = tmpdir.name
+    # ---- C++ with a model table of each grid ----
     rows = []
     for label, spec in grids:
         path = os.path.join(tmp, "t.root")
@@ -104,6 +106,7 @@ def main():
         rows.append((label, worst))
         print("  done: %s" % label)
 
+    # ---- Report ----
     print()
     print("max |C++ - FORTRAN| / |FORTRAN| over %d RG-E points, same model both sides" % len(POINTS))
     print("  %-26s" % "grid (Q2 x nu x z x pt2)" + "".join("%11s" % k for k in KEYS))

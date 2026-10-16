@@ -100,6 +100,7 @@ def main():
     counts, table = os.path.join(tmp, "counts.root"), os.path.join(tmp, "table.root")
     with open(cfg, "w") as f:
         f.write(CONFIG)
+    # ---- Toy events -> MakePhiTable fill + fit -> pulls ----
     subprocess.run([TOY, toy, nev, seed], check=True, stdout=subprocess.DEVNULL)
     subprocess.run([PRODUCER, "fill", cfg, counts, toy], check=True)
     subprocess.run([PRODUCER, "fit", cfg, counts, table], check=True)
