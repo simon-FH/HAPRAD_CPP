@@ -96,7 +96,7 @@ a benchmark.
 
 1. Build on ifarm with the ROOT that `farm/farm.cfg` loads in the jobs
    (`module use /cvmfs/oasis.opensciencegrid.org/jlab/scicomp/sw/el9/modulefiles`,
-   `module load root/6.30.06-gcc11.4.0`; then `make` in `..` and here, with
+   `module load root/6.28.10-gcc11.4.0`; then `make` in `..` and here, with
    `HAPRAD_CPP` set), and check the paths in `farm/farm.cfg`.
 2. Check the job list without submitting:
    `farm/submit_rc_workflow.sh C_D2 farm/runs/runs_bench_C_D2.txt -i 2 --dry-run`.
