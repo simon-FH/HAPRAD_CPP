@@ -75,6 +75,7 @@ def main():
     ap.add_argument("--resume", action="store_true", help="keep outputs that already exist")
     args = ap.parse_args()
 
+    # ---- Inputs: expand globs; RC friend names must not collide ----
     config = os.path.realpath(args.config)
     work = os.path.realpath(args.workdir)
     files = sorted({os.path.realpath(f) for p in args.inputs for f in (glob.glob(p) or [p])})
@@ -97,14 +98,18 @@ def main():
         counts, table, grid = (os.path.join(d, x) for x in ("counts.root", "table.root", "grid.root"))
         print("iteration %d" % k, flush=True)
 
+        # ---- Fill the counts: data x RC weights of the previous iteration ----
         if need(counts):
             extra = ["--rc-friend", os.path.join(prev, "friends")] if prev else []
             run([os.path.join(BIN, "MakePhiTable"), "fill", config, counts] + extra + files, os.path.join(d, "fill.log"))
+        # ---- Fit the table ----
         if need(table):
             run([os.path.join(BIN, "MakePhiTable"), "fit", config, counts, table], os.path.join(d, "fit.log"))
+        # ---- HAPRAD on the grid nodes ----
         if need(grid):
             run([os.path.join(HERE, "run_rc_grid.sh"), config, table, grid, str(args.jobs)], os.path.join(d, "grid.log"))
 
+        # ---- RC friend (weights) for every input file ----
         def apply(i):
             out = os.path.join(fr, names[i])
             if need(out):
@@ -113,6 +118,7 @@ def main():
         with ThreadPoolExecutor(args.jobs) as pool:
             list(pool.map(apply, range(len(files))))
 
+        # ---- Converged? Change of the RC factor since the previous iteration ----
         if prev:
             c = compare(os.path.join(prev, "grid.root"), grid)
             history.append((k, c))

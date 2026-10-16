@@ -94,10 +94,12 @@ Result Evaluate(TRadCor& rc, const Config& c, Double_t Q2, Double_t nu, Double_t
   Result res;
   const Double_t M = kMassProton, m = kMassPion;
   const Double_t x = Q2 / (2. * M * nu), W2 = M * M + 2. * M * nu - Q2, Eh = z * nu;
+  // ---- Kinematic limits: forbidden nodes are not sent to HAPRAD ----
   pt = std::max(pt, kPtMin);
   res.physical = x < 1. && nu < c.E && W2 > (M + m) * (M + m) && Eh > m && pt * pt < Eh * Eh - m * m;
   if (!res.physical) return res;
 
+  // ---- The HAPRAD call, its printout swallowed, integrator warnings counted ----
   std::ostringstream sink;
   std::streambuf* out = std::cout.rdbuf(sink.rdbuf());
   std::streambuf* err = std::cerr.rdbuf(sink.rdbuf());
@@ -107,6 +109,7 @@ Result Evaluate(TRadCor& rc, const Config& c, Double_t Q2, Double_t nu, Double_t
   std::cout.rdbuf(out);
   std::cerr.rdbuf(err);
 
+  // ---- The three ratios to sigma_Born ----
   res.sib = rc.GetSigBorn();
   if (res.sib > 0. && std::isfinite(res.sib)) {
     res.r[0] = rc.GetSigObs() / res.sib;
@@ -114,6 +117,7 @@ Result Evaluate(TRadCor& rc, const Config& c, Double_t Q2, Double_t nu, Double_t
     res.r[2] = rc.GetTail(1) / res.sib;
     res.valid = std::isfinite(res.r[0]) && std::isfinite(res.r[1]) && std::isfinite(res.r[2]);
   }
+  // ---- Table-lookup diagnostics of this call ----
   if (const TSemiInclusiveModel* sf = rc.GetSemiInclusiveModel())
     if (sf->NLookups() > 0) {
       res.outside = double(sf->NOutOfRange()) / sf->NLookups();
@@ -140,6 +144,7 @@ std::string TableLuminosity(const char* tablePath) {
 // lookups that were out of range, empty or second-neighbour, and the number of
 // integrator warnings.
 int Run(const Config& c, const char* tablePath, Long64_t chunk, Long64_t nChunks, const char* outPath) {
+  // ==== Load the table and book one histogram per stored quantity ====
   const rge::RCNodes g(c);
   TRadCor rc;
   if (!rc.LoadSemiInclusiveTable(tablePath)) return 1;
@@ -154,6 +159,8 @@ int Run(const Config& c, const char* tablePath, Long64_t chunk, Long64_t nChunks
   TStopwatch clock;
   const Long64_t size = g.Size();
   Int_t i[5], bin[5];
+  // ==== Evaluate this chunk's nodes ====
+  // Every nChunks-th node; each is marked computed, then filled if valid.
   for (Long64_t k = chunk; k < size; k += nChunks) {
     g.Decode(k, i);
     for (Int_t d = 0; d < 5; ++d) bin[d] = i[d] + 1;
@@ -182,6 +189,7 @@ int Run(const Config& c, const char* tablePath, Long64_t chunk, Long64_t nChunks
     }
   }
 
+  // ==== Write the chunk ====
   // Before creating the output: opening and closing the table resets ROOT's
   // current directory, and the writes below would go nowhere.
   const std::string tableLumi = TableLuminosity(tablePath);
@@ -209,6 +217,7 @@ int Run(const Config& c, const char* tablePath, Long64_t chunk, Long64_t nChunks
 // one "@" line per event.
 int Check(const Config& c, const char* gridPath, const char* tablePath, Long64_t n, Long64_t chunk, Long64_t nChunks,
           int nIn, char** in) {
+  // ==== Load the grid and the table it was built from ====
   rge::RCGrid grid;
   std::string why;
   if (!grid.Load(gridPath, why)) {
@@ -220,11 +229,13 @@ int Check(const Config& c, const char* gridPath, const char* tablePath, Long64_t
   TRadCor rc;
   if (!rc.LoadSemiInclusiveTable(tablePath)) return 1;
 
+  // ==== Bind the input ntuples ====
   TChain chain("DT");
   for (int k = 0; k < nIn; ++k) chain.Add(in[k]);
   rge::Event e;
   if (!rge::BindEvent(chain, e)) return 1;
 
+  // ==== Draw the event sample ====
   // Reservoir sample of selected events inside the grid (each event replaces
   // a random member with probability n / seen), with a fixed seed: the same
   // sample in every chunk.
@@ -247,6 +258,7 @@ int Check(const Config& c, const char* gridPath, const char* tablePath, Long64_t
     }
   }
 
+  // ==== Interpolated vs direct, for this chunk's share of the sample ====
   printf("# id Q2 nu z pt phi status cover  interp: r_vr r_in r_ex  direct: r_vr r_in r_ex\n");
   for (Long64_t j = chunk; j < Long64_t(sample.size()); j += nChunks) {
     Double_t v[5], r[3], cover;
@@ -274,6 +286,7 @@ int Compare(const char* pathA, const char* pathB) {
     fprintf(stderr, "cannot open %s or %s\n", pathA, pathB);
     return 1;
   }
+  // ==== Read both grids; they must have the same nodes ====
   const char* names[3] = {"valid", "r_vr", "r_in"};
   THnD *a[3], *b[3];
   for (Int_t k = 0; k < 3; ++k) {
@@ -291,6 +304,7 @@ int Compare(const char* pathA, const char* pathB) {
       fprintf(stderr, "%s and %s have different nodes\n", pathA, pathB);
       return 1;
     }
+  // ==== Change of r_vr + r_in over the nodes valid in both ====
   std::vector<Double_t> diff;
   Long64_t oneOnly = 0;
   Double_t sum = 0.;
@@ -306,6 +320,7 @@ int Compare(const char* pathA, const char* pathB) {
     fprintf(stderr, "no node is valid in both grids\n");
     return 1;
   }
+  // ==== Summary statistics, one machine-readable line ====
   const Double_t mean = sum / diff.size();
   std::sort(diff.begin(), diff.end());
   auto q = [&](Double_t f) { return diff[std::min(diff.size() - 1, size_t(f * (diff.size() - 1) + 0.5))]; };

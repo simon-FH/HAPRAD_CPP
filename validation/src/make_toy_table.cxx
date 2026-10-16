@@ -55,6 +55,7 @@ int main(int argc, char** argv) {
   for (THnD* h : {&A, &Ac, &Acc, &fitted})
     for (Int_t d = 0; d < 4; ++d) h->GetAxis(d)->SetName(names[d]);
 
+  // ---- Every cell: the toy amplitudes at its centre ----
   Int_t idx[4];
   for (idx[0] = 1; idx[0] <= nbins[0]; ++idx[0])
     for (idx[1] = 1; idx[1] <= nbins[1]; ++idx[1])
@@ -74,6 +75,7 @@ int main(int argc, char** argv) {
           fitted.SetBinContent(idx, 1.);
         }
 
+  // ---- Write the table ----
   TFile out(argv[1], "RECREATE");
   A.Write();
   Ac.Write();

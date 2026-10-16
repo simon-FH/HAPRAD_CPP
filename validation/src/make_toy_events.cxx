@@ -47,6 +47,7 @@ int main(int argc, char** argv) {
 
   Long64_t n = 0;
   while (n < nWanted) {
+    // ---- Kinematics: uniform in the box, physical hadron only ----
     const double Q2 = rng.Uniform(1.0, 6.0);
     const double nu = rng.Uniform(3.0, 9.5);
     const double z = rng.Uniform(0.15, 0.95);
@@ -66,6 +67,7 @@ int main(int argc, char** argv) {
       phi = rng.Uniform(-TMath::Pi(), TMath::Pi());
     } while (rng.Uniform(0., fmax) > 1. + rc * std::cos(phi) + rcc * std::cos(2. * phi));
 
+    // ---- One ntuple row ----
     const double x = Q2 / (2. * M * nu), y = nu / E;
     const double W2 = M * M + 2. * M * nu - Q2;
     const Float_t row[12] = {211.f, Float_t(E), Float_t(Q2), Float_t(nu), Float_t(x), Float_t(y), Float_t(W2),

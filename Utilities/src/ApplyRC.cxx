@@ -49,6 +49,7 @@ int main(int argc, char** argv) {
     fprintf(stderr, "usage: ApplyRC <config> <grid.root> <ntuple.root> <friend.root>\n");
     return 2;
   }
+  // ==== Load the config and the grid; check they belong together ====
   rge::Config c;
   if (!rge::LoadConfig(argv[1], c)) return 1;
   rge::RCGrid grid;
@@ -73,6 +74,7 @@ int main(int argc, char** argv) {
   // Coefficient of r_ex in rc: Z/A when the exclusive tail is included, else 0.
   const Double_t exScale = c.rcExclusiveTail ? c.targetNAZ : 0.;
 
+  // ==== Open the one input file ====
   TChain chain("DT");
   if (chain.Add(argv[3]) != 1) {
     fprintf(stderr, "ApplyRC takes exactly one input file, so that the friend lines up with it\n");
@@ -81,6 +83,7 @@ int main(int argc, char** argv) {
   rge::Event e;
   if (!rge::BindEvent(chain, e)) return 1;
 
+  // ==== Book the friend tree ====
   TFile out(argv[4], "RECREATE");
   if (out.IsZombie()) return 1;
   TTree tree("RC", "radiative-correction weights, friend of DT");
@@ -94,6 +97,8 @@ int main(int argc, char** argv) {
   tree.Branch("rc_cover", &cover, "rc_cover/F");
   tree.Branch("selected", &selected, "selected/O");
 
+  // ==== Weight every entry ====
+  // Same entry order as DT. rc from the grid; status 4 for another particle or beam.
   Long64_t count[5] = {0, 0, 0, 0, 0}, nSelected = 0, selectedByStatus[5] = {0, 0, 0, 0, 0};
   const Long64_t n = chain.GetEntries();
   for (Long64_t i = 0; i < n; ++i) {
@@ -121,6 +126,7 @@ int main(int argc, char** argv) {
     }
     tree.Fill();
   }
+  // ==== Write the tree and what it was made from ====
   tree.Write();
   TNamed("grid", argv[2]).Write();
   TNamed("table", grid.Info("table").c_str()).Write();
@@ -130,6 +136,7 @@ int main(int argc, char** argv) {
   TNamed("config", c.text.c_str()).Write();
   out.Close();
 
+  // ==== Summary by rc_status ====
   const char* label[5] = {"full grid support", "partial support", "outside the grid", "no grid support",
                           "other particle / beam"};
   printf("%s: %lld entries, %lld selected\n", argv[4], n, nSelected);

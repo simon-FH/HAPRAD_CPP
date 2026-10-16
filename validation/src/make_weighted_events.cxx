@@ -110,6 +110,7 @@ int main(int argc, char** argv) {
   const double E = std::atof(argv[4]);
   const double M = kMassProton;
 
+  // ==== points: the events' kinematics, for born_harmonics ====
   if (mode == "points") {
     Generate(seed, n, E, b, [&](long id, const Event& e) {
       printf("%ld 0 0 0 %.10g %.12g %.12g %.12g %.12g\n", id, E, e.Q2 / (2. * M * e.nu), e.Q2, e.z, std::sqrt(e.pt2));
@@ -118,6 +119,7 @@ int main(int argc, char** argv) {
   }
 
   if (mode == "build" && argc >= 8) {
+    // ==== build: read the harmonics back by event id ====
     // Harmonics by event id; PDFLIB's banner and rejected points are skipped.
     std::vector<double> B0(n, 0.), Bc(n, 0.), Bcc(n, 0.);
     std::vector<char> ok(n, 0);
@@ -138,6 +140,7 @@ int main(int argc, char** argv) {
       ok[id] = 1;
     }
 
+    // ---- Regenerate the same events and weight them by their Born cross section ----
     std::vector<Event> ev(n);
     std::vector<double> w(n, 0.);
     double sumW = 0.;
@@ -154,11 +157,13 @@ int main(int argc, char** argv) {
       fprintf(stderr, "no event has a cross section -- wrong harmonics file?\n");
       return 1;
     }
+    // ---- Weights to mean 1; the luminosity that corresponds to ----
     const double scale = double(n) / sumW;
     double volume = 2. * TMath::Pi();
     for (int d = 0; d < 4; ++d) volume *= b.hi[d] - b.lo[d];
     const double lumi = draws * scale / volume;
 
+    // ---- Write the ntuple and the normalisation parameters ----
     TFile out(argv[7], "RECREATE");
     TNtuple dt("DT", "toy pions weighted by HAPRAD 2.0 Born",
                "pid:E_beam:Q2:nu:x_bjorken:y_bjorken:W2:z_h:p_T2:phi_PQ:theta_PQ:vz:w:B0:Bc:Bcc");

@@ -36,6 +36,7 @@ C     Same masses as haprad2_point and the C++ haprad_constants.h.
       amhh = 0.1395675d0
       amhu = amp
 
+C     ---- One point per input line: set up, then sample the Born at 12 angles ----
  10   READ (*, *, END = 99) j0, j1, j2, j3, eb, xx, qq, zz, pp
       CALL bornset(eb, xx, qq, zz, pp, ok)
       b0 = 0.d0
@@ -49,10 +50,12 @@ C     Same masses as haprad2_point and the C++ haprad_constants.h.
             bc = bc + sib * COS(ph)
             bcc = bcc + sib * COS(2.d0 * ph)
          ENDDO
+C     ---- Project onto 1, cos(phi), cos(2 phi) ----
          b0 = b0 / DBLE(nphi)
          bc = 2.d0 * bc / DBLE(nphi)
          bcc = 2.d0 * bcc / DBLE(nphi)
       ENDIF
+C     ---- One output line per point ----
       WRITE (*, '(4(i9,1x),i2,3(1x,e24.16))') j0, j1, j2, j3, ok,
      &      b0, bc, bcc
       GOTO 10

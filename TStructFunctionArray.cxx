@@ -51,6 +51,7 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
   const Double_t &M = kMassProton;
   const Double_t &m_h = kMassDetectedHadron;
 
+  // ---- Step 1: kinematics shifted by the photon emission ----
   Double_t tldQ2 = fInv->Q2() + R * tau;
   Double_t tldSx = fInv->Sx() - R;
 
@@ -69,6 +70,7 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
   Double_t tldPl = (fHadKin->Eh() * tldNu - PhQ) / tld_sq;
   Double_t tldPt2 = SQ(fHadKin->Ph()) - SQ(tldPl);
 
+  // ---- Rounding-error estimate of tldPt2, for the p_t^2 >= 0 test below ----
   Double_t epsNu = kEpsMachine * Sqrt(SQ(fHadKin->Nu()) + SQ(fHadKin->Nu() - tldNu) + SQ(tldNu));
 
   Double_t epsT = kEpsMachine * Sqrt(SQ(fKin->T()) + SQ((tau - mu) * R) + SQ(R * tau) + SQ(R * mu));
@@ -83,16 +85,19 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
   Double_t epsPt2 = 2. * Sqrt(SQ(SQ(fHadKin->Ph())) * SQ(kEpsMachine) + SQ(tldPl) * SQ(epsPl));
 
   if (tldPt2 >= 0 || (SQ(tldPt2) - SQ(epsPt2)) <= 0) {
+    // ---- Equivalent beam energy and y at the shifted point ----
     Double_t a = fInv->S() / (2 * M) * (fInv->S() / (2 * M) - fHadKin->Nu()) * tldQ2 / fInv->Q2();
 
     Double_t tldE = 0.5 * (tldNu + Sqrt(SQ(tldNu) + 4 * a));
     Double_t tldY = tldNu / tldE;
 
+    // ---- Step 2: amplitudes from the table ----
     // Measured azimuthal amplitudes at the shifted kinematics, interpolated in
     // the loaded table; all zero (no contribution) when no table is loaded.
     Double_t A = 0., Ac = 0., Acc = 0.;
     if (fModel) fModel->Evaluate(tldQ2, tldX, tldY, tldZ, tldPt2, tldPx2, tldPl, A, Ac, Acc);
 
+    // ---- Step 3: amplitudes -> structure functions H1z..H4z ----
     // Relation between data yield and Hizs
     Double_t rlt = 0.14;  // Constant separating the long. & trans. cross-sections
     Double_t coef = (M * tldQ2 / 4. / tldZ);
@@ -119,6 +124,7 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
     Double_t H3z = N * Ac * Sqrt(LambdaRatio) * coef / tldSp / Sqrt(tldPt2);
     Double_t H4z = N * Acc * LambdaRatio * coef * tldX / tldPt2;
 
+    // ---- Step 4: H1z..H4z -> h1..h4 ----
     // Including kinematic shift due to photon emission
     Double_t aa = tldSx * (tldZ - 2 * M * tldPl / Sqrt(tldLq)) / (2. * SQ(M));
 
@@ -150,6 +156,7 @@ void TStructFunctionArray::Evaluate(Double_t tau, Double_t mu, Double_t R) {
     // 1/p_t^2 blow-up appears when the amplitudes fed to the inversion lack
     // their proper p_t dependence. With A_c ~ p_t and A_cc ~ p_t^2, H3z and
     // H4z stay finite.
+    // ---- Keep only a finite result ----
     if (Finite(h1) && Finite(h2) && Finite(h3) && Finite(h4)) {
       fArray[0] = h1;
       fArray[1] = h2;

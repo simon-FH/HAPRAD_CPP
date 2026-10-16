@@ -82,6 +82,7 @@ int main(int argc, char** argv) {
   }
   const Long64_t maxEntries = (argc > 2) ? atoll(argv[2]) : -1;
 
+  // ==== Bind the ntuple branches ====
   TChain chain("DT");
   chain.Add(argv[1]);
 
@@ -109,6 +110,7 @@ int main(int argc, char** argv) {
   Long64_t nSel = 0, nBackward = 0, nRejected = 0;
   Long64_t nRejPx2 = 0, nRejY = 0, nRejT = 0, nRejEh = 0, nRejOther = 0;
 
+  // ==== Per pi+: V1 from four-vectors vs HAPRAD's V1 at phi and phi + pi ====
   const Long64_t nEntries = chain.GetEntries();
   for (Long64_t i = 0; i < nEntries; ++i) {
     chain.GetEntry(i);
@@ -129,6 +131,7 @@ int main(int argc, char** argv) {
     const double v1 = HapradV1(Ebeam, xb, Q2, zh, std::sqrt(pt2), phiDeg + 180.);
     std::cout.rdbuf(coutBuf);
 
+    // ---- Rejected by HAPRAD: classify why ----
     if (!std::isfinite(v0) || !std::isfinite(v1)) {
       // HAPRAD prints which check failed just before throwing; classify by it.
       const std::string why = sink.str();
@@ -154,6 +157,7 @@ int main(int argc, char** argv) {
     if (maxEntries > 0 && Long64_t(diffAsIs.size()) >= maxEntries) break;
   }
 
+  // ==== Report: selection, sensitivity, the two hypotheses ====
   printf("pi+ passing DIS cuts        : %lld\n", nSel);
   printf("  backward (theta_PQ > 90)  : %lld  (%.2f%%)  -- excluded, see header\n", nBackward,
          nSel ? 100. * nBackward / nSel : 0.);

@@ -98,6 +98,7 @@ class RCGrid {
   // and "beam_energy" keys. Returns false, with the reason in `why`, if the
   // file is not an RC grid or any node was computed other than exactly once.
   bool Load(const char* path, std::string& why) {
+    // ---- Open the file; all five histograms must be there ----
     std::unique_ptr<TFile> f(TFile::Open(path, "READ"));
     if (!f || f->IsZombie()) {
       why = std::string("cannot open ") + path;
@@ -110,6 +111,7 @@ class RCGrid {
       why = std::string(path) + " is not an RC grid";
       return false;
     }
+    // ---- Node layout from the axes: bin centres are the nodes ----
     for (Int_t d = 0; d < 5; ++d) {
       const TAxis* ax = computed->GetAxis(d);
       fG.n[d] = ax->GetNbins();
@@ -117,6 +119,7 @@ class RCGrid {
       fG.lo[d] = ax->GetXmin() + step / 2.;
       fG.hi[d] = ax->GetXmax() - step / 2.;
     }
+    // ---- Copy the ratios of the valid nodes; count missing and doubled nodes ----
     const Long64_t size = fG.Size();
     for (Int_t k = 0; k < 3; ++k) fR[k].assign(size, 0.f);
     fValid.assign(size, 0);
@@ -133,12 +136,14 @@ class RCGrid {
         for (Int_t c = 0; c < 3; ++c) fR[c][k] = comp[c]->GetBinContent(bin);
       }
     }
+    // ---- A complete merge has every node computed exactly once ----
     if (missing || twice) {
       why = Form("%s is incomplete: %lld nodes never computed, %lld computed more than once "
                  "(a chunk missing from the merge, or merged twice)",
                  path, missing, twice);
       return false;
     }
+    // ---- Provenance keys ----
     for (const char* key : {"table", "table_luminosity", "beam_energy"})
       if (TNamed* t = f->Get<TNamed>(key)) fInfo[key] = t->GetTitle();
     return true;
@@ -154,6 +159,7 @@ class RCGrid {
   Status Interpolate(const Double_t v[5], Double_t r[3], Double_t& cover) const {
     r[0] = r[1] = r[2] = 0.;
     cover = 0.;
+    // ---- Bracketing nodes and weights per axis; outside the grid: no result ----
     Int_t i0[5];
     Double_t f[5];
     for (Int_t d = 0; d < 5; ++d) {
@@ -162,6 +168,7 @@ class RCGrid {
       i0[d] = std::min(std::max(Int_t(std::floor(t)), 0), fG.n[d] - 2);
       f[d] = std::min(std::max(t - i0[d], 0.), 1.);
     }
+    // ---- Weighted sum over the 2^5 corners, valid ones only ----
     Double_t sum[3] = {0., 0., 0.};
     Int_t i[5];
     for (Int_t corner = 0; corner < 32; ++corner) {
@@ -177,6 +184,7 @@ class RCGrid {
       cover += w;
       for (Int_t c = 0; c < 3; ++c) sum[c] += w * fR[c][k];
     }
+    // ---- Renormalise by the weight that had a result ----
     if (cover <= 0.) return kNoValidCorner;
     for (Int_t c = 0; c < 3; ++c) r[c] = sum[c] / cover;
     return cover > 1. - 1e-9 ? kInside : kPartial;

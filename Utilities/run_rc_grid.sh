@@ -16,6 +16,7 @@ if [ $# -lt 3 ]; then
   echo "usage: $0 <config> <table.root> <grid.root> [jobs]" >&2
   exit 2
 fi
+# ---- Absolute paths; the chunks run in the MAID data directory ----
 cfg=$(readlink -f "$1")
 table=$(readlink -f "$2")
 out=$(readlink -f "$3")
@@ -27,10 +28,12 @@ data=$(readlink -f "${HAPRAD_DATA_DIR:-$here/../haprad2}")
 tmp=$(mktemp -d "${out%.root}_chunks.XXXX")
 cd "$data"
 
+# ---- One MakeRCGrid run per chunk, in parallel ----
 echo "RC grid: $jobs chunks in parallel, work in $tmp"
 seq 0 $((jobs - 1)) | xargs -P "$jobs" -I{} sh -c \
   "'$bin/MakeRCGrid' run '$cfg' '$table' {} $jobs '$tmp/chunk_{}.root' > '$tmp/chunk_{}.log' 2>&1 \
    || { echo 'chunk {} failed, see $tmp/chunk_{}.log' >&2; exit 255; }"
+# ---- Merge the chunks, print their summaries, clean up ----
 hadd -f "$out" "$tmp"/chunk_*.root > "$tmp/hadd.log" 2>&1 || { echo "hadd failed, see $tmp/hadd.log" >&2; exit 1; }
 grep -h " chunk .* of " "$tmp"/chunk_*.log | sed "s|^$tmp/||"
 rm -r "$tmp"

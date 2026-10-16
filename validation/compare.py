@@ -351,6 +351,7 @@ def main():
 
     if not os.path.exists(CPP):
         sys.exit("missing %s -- run `make` first" % CPP)
+    # ---- Tier 0 always; the FORTRAN tiers only if haprad2_point was built ----
     points = GRIDS[args.grid]
     print("grid '%s' : %d point(s)\n" % (args.grid, len(points)))
 
@@ -373,6 +374,7 @@ def main():
     t3 = tier_compare(points, "RES", RES_TOL,
                       "TIER 3  cross sections: C++ vs HAPRAD 2.0 Fortran")
 
+    # ---- Summary ----
     print()
     print("=" * 78)
     print("  Tier 0 : %s" % ("FAIL" if hard_fail else "pass"))

@@ -105,6 +105,7 @@ int Points(const Binning& b, Double_t E) {
 // the FORTRAN harmonics at four angles per cell. Returns 1 if the worst
 // relative difference exceeds 1e-4.
 int Build(const Binning& b, Double_t E, const char* harmPath, const char* outPath) {
+  // ==== Read the FORTRAN harmonics ====
   // FORTRAN harmonics, keyed by cell. PDFLIB prints a banner to stdout, so keep
   // only lines that parse as data.
   std::map<std::vector<Int_t>, std::vector<Double_t>> harm;
@@ -128,6 +129,7 @@ int Build(const Binning& b, Double_t E, const char* harmPath, const char* outPat
     return 1;
   }
 
+  // ==== Unit table, so that CalculateBorn returns K ====
   // Unit table, for K. One cell per axis, wide enough to cover everything.
   const TString unitPath = TString(outPath) + ".unit.root";
   {
@@ -142,6 +144,7 @@ int Build(const Binning& b, Double_t E, const char* harmPath, const char* outPat
     TNamed("pt_scaling", "raw").Write();
   }
 
+  // ==== Fill the table: A = B0/K, Ac = Bc/(K pt), Acc = Bcc/(K pt^2) ====
   auto A = NewTable("A", b), Ac = NewTable("Ac", b), Acc = NewTable("Acc", b), fitted = NewTable("fitted", b);
   Long64_t nCells = 0, nBuilt = 0, nNoK = 0;
   {
@@ -169,6 +172,7 @@ int Build(const Binning& b, Double_t E, const char* harmPath, const char* outPat
   }
   std::remove(unitPath.Data());
 
+  // ==== Write the table ====
   {
     TFile f(outPath, "RECREATE");
     A->Write();
@@ -184,6 +188,7 @@ int Build(const Binning& b, Double_t E, const char* harmPath, const char* outPat
   printf("  built                      : %lld\n", nBuilt);
   printf("  C++ rejects the kinematics : %lld\n", nNoK);
 
+  // ==== Self-check against the FORTRAN Born ====
   // Self-check: through the real reader, the C++ Born at each cell centre must
   // reproduce the FORTRAN harmonics at any phi.
   TRadCor rc;
@@ -213,6 +218,7 @@ int Build(const Binning& b, Double_t E, const char* harmPath, const char* outPat
     }
   }
   printf("self-check: C++ Born vs FORTRAN Born at %lld (cell, phi) pairs, worst reldiff %.2e\n", nChecked, worst);
+  // ---- Optional detail: worst cells, and the residual against y ----
   if (getenv("MODEL_TABLE_DIAG")) {
     std::sort(res.begin(), res.end(), [](const Res& a, const Res& b) { return a.d > b.d; });
     printf("  %-10s %6s %6s %5s %6s %6s %6s\n", "reldiff", "Q2", "nu", "z", "pt2", "y", "phi");

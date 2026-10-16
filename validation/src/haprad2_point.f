@@ -29,6 +29,7 @@ C     to the C++ TKinematicException path.
          WRITE (0,*) 'usage: haprad2_point E x Q2 z pt phi_deg'
          CALL EXIT(2)
       ENDIF
+C     ---- The point, from the command line ----
       CALL GETARG(1, arg)
       READ (arg,*) Ebeam
       CALL GETARG(2, arg)
@@ -66,6 +67,7 @@ C     the point. There is no status flag to inspect.
       tai(2) = 0d0
       tai(3) = 0d0
 
+C     ---- The full HAPRAD 2.0 calculation ----
       CALL ihaprad(Ebeam, ilepl, iphi_radl, epsphir, epstau, epsrr,
      &             xb, -q2in, zin, ptin, phiin/raddeg,
      &             sib, sig, delinf, delta, tai)
@@ -76,6 +78,7 @@ C     the point. There is no status flag to inspect.
          sib = 0d0
       ENDIF
 
+C     ---- Block KIN: invariants and hadron kinematics ----
       WRITE (*,'(a)') '### BEGIN KIN'
       CALL emitd('kin_ok', DBLE(kin_ok))
       IF (kin_ok .EQ. 1) THEN
@@ -118,6 +121,7 @@ C     have been filled by the ihaprad call above.
          CALL dumpexc()
       ENDIF
 
+C     ---- Block RES: cross sections, tails, RC factors ----
       WRITE (*,'(a)') '### BEGIN RES'
       CALL emitd('kin_ok', DBLE(kin_ok))
       CALL emitd('sib', sib)

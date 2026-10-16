@@ -86,6 +86,7 @@ Bool_t TSemiInclusiveModel::Load(const char* path) {
   Clear();
   ResetCounters();
 
+  // ---- Open the file; A, Ac, Acc must be 4-D with one binning ----
   const char* where = "TSemiInclusiveModel::Load";
   std::unique_ptr<TFile> file(TFile::Open(path, "READ"));
   if (!file || file->IsZombie()) {
@@ -109,12 +110,14 @@ Bool_t TSemiInclusiveModel::Load(const char* path) {
     return false;
   }
 
+  // ---- Optional map of fitted cells ----
   std::unique_ptr<THnD> fitted(file->Get<THnD>("fitted"));
   if (fitted && !SameBinning(a.get(), fitted.get())) {
     std::cerr << where << ": 'fitted' does not share the binning of A" << std::endl;
     return false;
   }
 
+  // ---- Which variable each axis is ----
   // Each axis name says which kinematic variable it is.
   for (Int_t d = 0; d < 4; ++d) {
     const TString n = a->GetAxis(d)->GetName();
@@ -137,6 +140,7 @@ Bool_t TSemiInclusiveModel::Load(const char* path) {
     }
   }
 
+  // ---- Optional keys: pt_scaling, interpolation ----
   Bool_t reduced = false;
   if (TNamed* s = file->Get<TNamed>("pt_scaling")) {
     const TString v = s->GetTitle();
@@ -161,6 +165,7 @@ Bool_t TSemiInclusiveModel::Load(const char* path) {
     }
   }
 
+  // ---- All checks passed: keep the table, build the second-neighbour copy ----
   fA = std::move(a);
   fAc = std::move(ac);
   fAcc = std::move(acc);
@@ -179,6 +184,7 @@ void TSemiInclusiveModel::BuildSecondNeighbours() {
   // and the ratios Ac/A, Acc/A for a log table, as the interpolation does.
   // fFillOk marks the cells of the copy that hold a value: the fitted ones and
   // the unfitted ones with at least one fitted neighbour.
+  // ---- Start from a copy of the table ----
   fFillA.reset(static_cast<THnD*>(fA->Clone("A_second")));
   fFillAc.reset(static_cast<THnD*>(fAc->Clone("Ac_second")));
   fFillAcc.reset(static_cast<THnD*>(fAcc->Clone("Acc_second")));
@@ -187,6 +193,7 @@ void TSemiInclusiveModel::BuildSecondNeighbours() {
     if (fFitted && fFitted->GetBinContent(bin) == 0.) return false;
     return !fLogA || fA->GetBinContent(bin) > 0.;
   };
+  // ---- Fill every unfitted cell from its fitted neighbours ----
   Int_t n[4];
   for (Int_t d = 0; d < 4; ++d) n[d] = fA->GetAxis(d)->GetNbins();
   Int_t idx[4], nb[4];
@@ -228,6 +235,7 @@ void TSemiInclusiveModel::BuildSecondNeighbours() {
               sAcc += wc * fAcc->GetBinContent(nbin);
             }
           }
+          // ---- Store the average (back from log A and the ratios for a log table) ----
           if (sw <= 0.) continue;
           const Double_t a = fLogA ? std::exp(sA / sw) : sA / sw;
           fFillA->SetBinContent(bin, a);
@@ -259,6 +267,7 @@ void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Doub
 
   ++fNLookups;
 
+  // ---- Step 1: reject unphysical kinematics ----
   if (X <= 0 || X > 1 || Z < 0 || Z > 1 || mx2 < SQ(kMassProton + kMassPion)) {
     ++fNUnphysical;
     return;
@@ -266,6 +275,7 @@ void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Doub
 
   const Double_t pt2pos = TMath::Max(0., pt2);
 
+  // ---- Step 2: bracketing cells and weights per axis ----
   // For each axis: the two neighbouring cells to interpolate between, and the
   // weight of the upper one.
   Int_t lo[4], hi[4];
@@ -312,6 +322,7 @@ void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Doub
   }
   if (outside) ++fNOutOfRange;
 
+  // ---- Step 3: weighted sum over the 16 corners ----
   // Sum over the 2^4 corners, dropping unusable ones and renormalising. Bit d
   // of `corner` chooses the lower or upper cell on axis d. A corner is usable
   // if `usable` marks it (filled copy) or, when `usable` is null, if it is
@@ -348,7 +359,9 @@ void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Doub
       }
     }
   };
+  // ---- First the table itself ----
   corners(fA.get(), fAc.get(), fAcc.get(), nullptr);
+  // ---- Step 4: the filled copy, if no corner was fitted ----
   // Second neighbours: when none of the 16 surrounding cell centres is fitted,
   // interpolate the same way in the filled copy of the table built at Load(),
   // in which every unfitted cell holds the average of the fitted cells next to
@@ -364,6 +377,7 @@ void TSemiInclusiveModel::Evaluate(Double_t q2, Double_t X, Double_t /*Y*/, Doub
     return;
   }
 
+  // ---- Step 5: the amplitudes, with the p_t factors of a reduced table ----
   if (fLogA) {
     A = std::exp(sA / sumW);
     Ac = A * sAc / sumW;

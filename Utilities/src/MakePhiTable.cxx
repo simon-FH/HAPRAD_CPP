@@ -93,12 +93,15 @@ Long64_t Entries(const std::string& file, const char* tree) {
 // weighted by the optional weight branch and, with --rc-friend, by its RC
 // weight. Also writes the cut flow, the config and the list of sources.
 int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, int nIn, char** in) {
+  // ==== Open the inputs ====
+  // Chain the ntuples and keep their names for the output.
   TChain chain("DT");
   TString sources;
   for (int i = 0; i < nIn; ++i) {
     chain.Add(in[i]);
     sources += TString(in[i]) + "\n";
   }
+  // ==== RC friends (only with --rc-friend) ====
   // RC weights from the previous iteration, one friend file per input file. A
   // friend chain lines up entry by entry only if every file pair does: checked.
   TChain rcChain("RC");
@@ -117,6 +120,8 @@ int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, i
     }
   }
 
+  // ==== Bind the branches ====
+  // The selection's branches, the optional weight branch, and RC.w.
   rge::Event e;
   Float_t w = 1.f;
   if (!rge::BindEvent(chain, e)) return 1;
@@ -147,6 +152,7 @@ int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, i
     }
   }
 
+  // ==== Book the 5-D counts and the cut flow ====
   THnD counts("counts", "counts", 5, c.n, c.lo, c.hi);
   for (Int_t d = 0; d < 5; ++d) counts.GetAxis(d)->SetName(kAxis[d]);
   counts.Sumw2();
@@ -157,6 +163,9 @@ int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, i
   for (Int_t i = 0; i < rge::kNStages; ++i) flow.GetXaxis()->SetBinLabel(i + 1, rge::kStage[i]);
   flow.GetXaxis()->SetBinLabel(nStages, "inside grid");
 
+  // ==== Fill the counts ====
+  // Each event: record the cuts it passes; if selected and inside the binning,
+  // add w * RC.w to its (Q2, nu, z, pt2, phi) cell.
   const Double_t radToDeg = 180. / TMath::Pi();
   const Long64_t n = chain.GetEntries();
   for (Long64_t i = 0; i < n; ++i) {
@@ -174,6 +183,7 @@ int Fill(const Config& c, const char* outPath, const std::string& rcFriendDir, i
     counts.Fill(v, w * wRC);
   }
 
+  // ==== Write the counts, cut flow, config and source list ====
   TFile out(outPath, "RECREATE");
   if (out.IsZombie()) return 1;
   counts.Write();
@@ -209,6 +219,7 @@ bool FitHarmonics(const std::vector<Double_t>& phi, Double_t width, const std::v
       for (Int_t j = 0; j < 3; ++j) a[i][j] += f[i] * f[j] / var[k];
     }
   }
+  // ---- Solve the normal equations ----
   // Invert the 3x3 symmetric matrix by cofactors.
   const Double_t det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
                        a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
@@ -223,6 +234,7 @@ bool FitHarmonics(const std::vector<Double_t>& phi, Double_t width, const std::v
   cov[2][0] = cov[0][2];
   cov[2][1] = cov[1][2];
   for (Int_t i = 0; i < 3; ++i) p[i] = cov[i][0] * b[0] + cov[i][1] * b[1] + cov[i][2] * b[2];
+  // ---- chi2 of the fit ----
   chi2 = 0.;
   for (size_t k = 0; k < phi.size(); ++k) {
     const Double_t r = y[k] - (p[0] + p[1] * s1 * std::cos(phi[k]) + p[2] * s2 * std::cos(2. * phi[k]));
@@ -282,6 +294,7 @@ class KFactor {
 // Writes the table with its errors, the raw fit results, the event counts and
 // chi2/ndf per cell, and the keys that describe it; prints a cell summary.
 int Fit(const Config& c, const char* countsPath, const char* outPath) {
+  // ==== Read the counts; their binning must match the config ====
   std::unique_ptr<TFile> in(TFile::Open(countsPath, "READ"));
   if (!in || in->IsZombie()) {
     fprintf(stderr, "cannot open %s\n", countsPath);
@@ -299,6 +312,8 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
       return 1;
     }
 
+  // ==== Book the output tables ====
+  // 4-D: the phi axis is fitted away.
   Int_t n4[4];
   Double_t lo4[4], hi4[4];
   for (Int_t d = 0; d < 4; ++d) {
@@ -316,21 +331,25 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
   auto rawA = make("yield_a"), rawAc = make("yield_ac"), rawAcc = make("yield_acc");
   auto nev = make("events"), chi2ndf = make("chi2_ndf");
 
+  // ==== K: HAPRAD's Born cross section for a unit table, which defines A ====
   KFactor K(std::string(outPath) + ".unitK.root");
   if (!K.Ok()) return 1;
 
+  // ==== Phi bin centres and the bin-averaging factors of cos(phi), cos(2 phi) ====
   const Int_t nphi = c.n[4];
   std::vector<Double_t> phiC(nphi);
   for (Int_t k = 0; k < nphi; ++k) phiC[k] = counts->GetAxis(4)->GetBinCenter(k + 1) / 180. * TMath::Pi();
   const Double_t phiWidth = (c.hi[4] - c.lo[4]) / nphi / 180. * TMath::Pi();
   const Double_t s1 = std::sin(phiWidth / 2.) / (phiWidth / 2.), s2 = std::sin(phiWidth) / phiWidth;
 
+  // ==== Cell volume ====
   // The binning volume of a 5-D cell, phi in radians, and the Jacobian
   // |d(Q2, nu)/d(x, y)| = 2 M E nu that turns a yield density in the binning
   // variables into one in HAPRAD's variables.
   Double_t vol = phiWidth;
   for (Int_t d = 0; d < 4; ++d) vol *= (c.hi[d] - c.lo[d]) / c.n[d];
 
+  // ==== Loop over the 4-D cells: collect, fit, convert, store ====
   Long64_t nCells = 0, nEmpty = 0, nSparse = 0, nNegative = 0, nNoK = 0, nBuilt = 0;
   Int_t idx5[5], idx4[4];
   for (idx4[0] = 1; idx4[0] <= n4[0]; ++idx4[0])
@@ -338,6 +357,7 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
       for (idx4[2] = 1; idx4[2] <= n4[2]; ++idx4[2])
         for (idx4[3] = 1; idx4[3] <= n4[3]; ++idx4[3]) {
           ++nCells;
+          // ---- Collect the cell's phi distribution: sum w and sum w^2 per phi bin ----
           std::vector<Double_t> y(nphi), var(nphi);
           Double_t total = 0., total2 = 0.;
           Int_t filled = 0;
@@ -354,6 +374,7 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
             ++nEmpty;
             continue;
           }
+          // ---- Enough data to fit? ----
           nev->SetBinContent(idx4, total);
           // Effective number of events, (sum w)^2 / sum w^2: the event count
           // for unweighted data, and independent of the weights' scale.
@@ -362,6 +383,7 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
             ++nSparse;
             continue;
           }
+          // ---- Fit A + Ac cos(phi) + Acc cos(2 phi) ----
           // Variances from the fitted prediction, not from each bin's own
           // content: with data-derived variances, bins that fluctuate low get
           // small errors and pull the fit down, by about 1/n for n events per
@@ -385,10 +407,12 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
             ++nSparse;
             continue;
           }
+          // ---- Reject a non-positive A ----
           if (!(p[0] > 0.)) {  // log interpolation needs A > 0
             ++nNegative;
             continue;
           }
+          // ---- K at the cell centre ----
           const Double_t Q2 = A->GetAxis(0)->GetBinCenter(idx4[0]);
           const Double_t nu = A->GetAxis(1)->GetBinCenter(idx4[1]);
           const Double_t z = A->GetAxis(2)->GetBinCenter(idx4[2]);
@@ -398,6 +422,7 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
             ++nNoK;
             continue;
           }
+          // ---- Store the cell: A, Ac/pt, Acc/pt^2, errors, raw fit, chi2 ----
           // yield -> cross section in (x, y, z, pt2, phi); then divide by K.
           const Double_t s = 2. * kMassProton * c.E * nu / vol / c.lumi / k;
           const Double_t pt = std::sqrt(pt2);
@@ -415,6 +440,7 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
           ++nBuilt;
         }
 
+  // ==== Write the table and the keys that describe it ====
   TFile out(outPath, "RECREATE");
   if (out.IsZombie()) return 1;
   for (THnD* h : {A.get(), Ac.get(), Acc.get(), fitted.get(), eA.get(), eAc.get(), eAcc.get(), rawA.get(), rawAc.get(),
@@ -437,6 +463,7 @@ int Fit(const Config& c, const char* countsPath, const char* outPath) {
   if (TH1D* flow = in->Get<TH1D>("cutflow")) flow->Write();
   out.Close();
 
+  // ==== Cell summary ====
   printf("%s\n", outPath);
   printf("  4-D cells                     %8lld\n", nCells);
   printf("    no events                   %8lld\n", nEmpty);
