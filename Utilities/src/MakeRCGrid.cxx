@@ -5,7 +5,8 @@
 //   MakeRCGrid run   <config> <table.root> <chunk> <nchunks> <grid_chunk.root>
 //   hadd grid.root grid_chunk*.root
 //   MakeRCGrid check <config> <grid.root> <table.root> <n> <chunk> <nchunks> <ntuple files ...>
-//   MakeRCGrid compare <gridA.root> <gridB.root>
+//   MakeRCGrid compare <gridA.root> <gridB.root> [n]
+//   MakeRCGrid inspect <grid.root> [n]
 //
 // `run` evaluates every nchunks-th node, starting at `chunk` -- interleaved, so
 // chunks cost about the same. One HAPRAD call takes ~0.5 s; run_rc_grid.sh
@@ -21,6 +22,10 @@
 // the change of the RC factor without the exclusive tail, r_vr + r_in, over the
 // nodes valid in both grids. It prints one machine-readable line,
 //   @compare <nodes> <max |d|> <median |d|> <95% |d|> <mean d> <valid in one only>
+// and, given n, the n nodes that changed most.
+//
+// `inspect` shows the distribution of the RC factor over one grid's nodes and
+// the n nodes furthest from 1, with what HAPRAD saw there.
 //
 // The grid belongs to ONE table: every iteration of the RC loop needs a new one.
 
@@ -277,10 +282,21 @@ int Check(const Config& c, const char* gridPath, const char* tablePath, Long64_t
   return 0;
 }
 
+// The kinematics of a grid node from its global bin, as "Q2 nu z pt phi x".
+std::string NodeKinematics(const THnD* h, Long64_t bin) {
+  Int_t idx[5];
+  h->GetBinContent(bin, idx);
+  Double_t v[5];
+  for (Int_t d = 0; d < 5; ++d) v[d] = h->GetAxis(d)->GetBinCenter(idx[d]);
+  return Form("Q2 %5.2f nu %5.2f z %4.2f pt %5.3f phi %5.1f  x %5.3f", v[0], v[1], v[2], v[3], v[4],
+              v[0] / (2. * kMassProton * v[1]));
+}
+
 // The `compare` mode: over the nodes valid in both grids, the change d of
 // r_vr + r_in from grid A to grid B; prints the count, max, median and 95th
 // percentile of |d|, the mean d, and the number of nodes valid in only one.
-int Compare(const char* pathA, const char* pathB) {
+// With nWorst > 0, also lists the nWorst nodes that changed most.
+int Compare(const char* pathA, const char* pathB, Int_t nWorst) {
   std::unique_ptr<TFile> fa(TFile::Open(pathA, "READ")), fb(TFile::Open(pathB, "READ"));
   if (!fa || fa->IsZombie() || !fb || fb->IsZombie()) {
     fprintf(stderr, "cannot open %s or %s\n", pathA, pathB);
@@ -306,6 +322,7 @@ int Compare(const char* pathA, const char* pathB) {
     }
   // ==== Change of r_vr + r_in over the nodes valid in both ====
   std::vector<Double_t> diff;
+  std::vector<std::pair<Double_t, Long64_t>> byNode;  // (|d|, bin), for the listing
   Long64_t oneOnly = 0;
   Double_t sum = 0.;
   for (Long64_t i = 0; i < a[0]->GetNbins(); ++i) {
@@ -314,6 +331,7 @@ int Compare(const char* pathA, const char* pathB) {
     if (!va || !vb) continue;
     const Double_t d = (b[1]->GetBinContent(i) + b[2]->GetBinContent(i)) - (a[1]->GetBinContent(i) + a[2]->GetBinContent(i));
     diff.push_back(std::fabs(d));
+    byNode.emplace_back(std::fabs(d), i);
     sum += d;
   }
   if (diff.empty()) {
@@ -325,6 +343,92 @@ int Compare(const char* pathA, const char* pathB) {
   std::sort(diff.begin(), diff.end());
   auto q = [&](Double_t f) { return diff[std::min(diff.size() - 1, size_t(f * (diff.size() - 1) + 0.5))]; };
   printf("@compare %zu %.6g %.6g %.6g %+.6g %lld\n", diff.size(), diff.back(), q(0.5), q(0.95), mean, oneOnly);
+
+  // ==== Optional: the nodes that changed most ====
+  if (nWorst > 0) {
+    std::sort(byNode.begin(), byNode.end(), [](const auto& p, const auto& r) { return p.first > r.first; });
+    printf("largest changes of r_vr + r_in (A -> B):\n");
+    for (size_t k = 0; k < byNode.size() && k < size_t(nWorst); ++k) {
+      const Long64_t i = byNode[k].second;
+      printf("  %s   %10.4g -> %10.4g\n", NodeKinematics(a[0], i).c_str(), a[1]->GetBinContent(i) + a[2]->GetBinContent(i),
+             b[1]->GetBinContent(i) + b[2]->GetBinContent(i));
+    }
+  }
+  return 0;
+}
+
+// The `inspect` mode: how the RC factor r_vr + r_in is distributed over the
+// valid nodes of one grid, and the nWorst nodes furthest from 1 (any factor
+// <= 0 first, then by |log rc|), each with its kinematics, sigma_Born, the
+// three ratios and the fractions of its table lookups that were outside the
+// table, empty, or filled from second neighbours. Tells noisy table cells
+// (small sigma_Born) from table edges (many outside / empty lookups).
+int Inspect(const char* path, Int_t nWorst) {
+  std::unique_ptr<TFile> f(TFile::Open(path, "READ"));
+  if (!f || f->IsZombie()) {
+    fprintf(stderr, "cannot open %s\n", path);
+    return 1;
+  }
+  // ==== Read the stored quantities ====
+  const char* names[8] = {"valid", "sigma_born", "r_vr", "r_in", "r_ex", "table_outside", "table_empty", "table_second"};
+  THnD* h[8];
+  for (Int_t k = 0; k < 8; ++k) {
+    h[k] = f->Get<THnD>(names[k]);
+    if (!h[k]) {
+      fprintf(stderr, "%s has no %s: not an RC grid\n", path, names[k]);
+      return 1;
+    }
+  }
+  // ==== The RC factor at every valid node ====
+  std::vector<std::pair<Double_t, Long64_t>> rc;  // (r_vr + r_in, bin)
+  for (Long64_t i = 0; i < h[0]->GetNbins(); ++i)
+    if (h[0]->GetBinContent(i) > 0.5) rc.emplace_back(h[2]->GetBinContent(i) + h[3]->GetBinContent(i), i);
+  if (rc.empty()) {
+    fprintf(stderr, "%s has no valid node\n", path);
+    return 1;
+  }
+  std::vector<Double_t> v;
+  for (const auto& p : rc) v.push_back(p.first);
+  std::sort(v.begin(), v.end());
+  auto q = [&](Double_t x) { return v[std::min(v.size() - 1, size_t(x * (v.size() - 1) + 0.5))]; };
+  auto count = [&](auto pred) { return std::count_if(v.begin(), v.end(), pred); };
+  printf("%zu valid nodes; RC factor r_vr + r_in:\n", v.size());
+  printf("  min %.4g  1%% %.4g  5%% %.4g  median %.4g  95%% %.4g  99%% %.4g  max %.4g\n", v.front(), q(0.01), q(0.05),
+         q(0.5), q(0.95), q(0.99), v.back());
+  printf("  <= 0: %ld   < 0.5: %ld   > 1.5: %ld   > 2: %ld   > 10: %ld\n", count([](Double_t x) { return x <= 0.; }),
+         count([](Double_t x) { return x < 0.5; }), count([](Double_t x) { return x > 1.5; }),
+         count([](Double_t x) { return x > 2.; }), count([](Double_t x) { return x > 10.; }));
+
+  // ==== Table lookups: all nodes against those outside [0.5, 2] ====
+  Double_t sAll[3] = {0., 0., 0.}, sOdd[3] = {0., 0., 0.};
+  Long64_t nOdd = 0;
+  for (const auto& p : rc) {
+    const bool odd = !(p.first >= 0.5 && p.first <= 2.);
+    for (Int_t k = 0; k < 3; ++k) {
+      const Double_t x = h[5 + k]->GetBinContent(p.second);
+      sAll[k] += x;
+      if (odd) sOdd[k] += x;
+    }
+    nOdd += odd;
+  }
+  printf("mean fraction of table lookups   outside   empty   2nd nbr\n");
+  printf("  all valid nodes               %7.3f %7.3f %7.3f\n", sAll[0] / rc.size(), sAll[1] / rc.size(), sAll[2] / rc.size());
+  if (nOdd)
+    printf("  nodes with rc outside [0.5,2] %7.3f %7.3f %7.3f   (%lld nodes)\n", sOdd[0] / nOdd, sOdd[1] / nOdd,
+           sOdd[2] / nOdd, nOdd);
+
+  // ==== The nodes furthest from 1 ====
+  auto badness = [](Double_t x) { return x <= 0. ? 1e300 : std::fabs(std::log(x)); };
+  std::sort(rc.begin(), rc.end(), [&](const auto& p, const auto& r) { return badness(p.first) > badness(r.first); });
+  printf("nodes furthest from rc = 1:\n");
+  printf("  %-55s %10s %9s %9s %9s %9s  %6s %6s %6s\n", "node", "sigma_Born", "rc", "r_vr", "r_in", "r_ex", "out", "empty",
+         "2nd");
+  for (size_t k = 0; k < rc.size() && k < size_t(nWorst); ++k) {
+    const Long64_t i = rc[k].second;
+    printf("  %-55s %10.4g %9.4g %9.4g %9.4g %9.4g  %6.3f %6.3f %6.3f\n", NodeKinematics(h[0], i).c_str(),
+           h[1]->GetBinContent(i), rc[k].first, h[2]->GetBinContent(i), h[3]->GetBinContent(i), h[4]->GetBinContent(i),
+           h[5]->GetBinContent(i), h[6]->GetBinContent(i), h[7]->GetBinContent(i));
+  }
   return 0;
 }
 
@@ -336,7 +440,8 @@ int Compare(const char* pathA, const char* pathB) {
 int main(int argc, char** argv) {
   const std::string mode = argc > 1 ? argv[1] : "";
   SetErrorHandler(CountGSLWarnings);
-  if (mode == "compare" && argc == 4) return Compare(argv[2], argv[3]);
+  if (mode == "compare" && (argc == 4 || argc == 5)) return Compare(argv[2], argv[3], argc == 5 ? atoi(argv[4]) : 0);
+  if (mode == "inspect" && (argc == 3 || argc == 4)) return Inspect(argv[2], argc == 4 ? atoi(argv[3]) : 20);
   Config c;
   if ((mode == "run" && argc == 7) || (mode == "check" && argc >= 9)) {
     if (!rge::LoadConfig(argv[2], c)) return 1;
@@ -370,7 +475,8 @@ int main(int argc, char** argv) {
   fprintf(stderr,
           "usage: MakeRCGrid run   <config> <table.root> <chunk> <nchunks> <grid_chunk.root>\n"
           "       MakeRCGrid check <config> <grid.root> <table.root> <n> <chunk> <nchunks> <ntuple files ...>\n"
-          "       MakeRCGrid compare <gridA.root> <gridB.root>\n"
+          "       MakeRCGrid compare <gridA.root> <gridB.root> [n: list the n largest changes]\n"
+          "       MakeRCGrid inspect <grid.root> [n: list the n nodes furthest from 1, default 20]\n"
           "Chunks of `run` merge with `hadd`; run_rc_grid.sh does both.\n");
   return 2;
 }
