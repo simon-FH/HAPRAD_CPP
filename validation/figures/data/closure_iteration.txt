@@ -1,0 +1,18 @@
+events: 2000000 toy pions weighted by HAPRAD 2.0's Born cross section
+truth: table and RC grid
+  1112299 of 2000000
+  observed events: 1112299 of 2000000 (the rest are outside the true grid's support)
+loop: rc_iterate.py on the observed events, 4 iterations
+
+against the truth (cells / nodes valid in both; the true table has 1249 fitted cells):
+  table: A_k/A_true - 1 as |.| median, |.| 95%, mean; Ac/A and Acc/A differences as |.| median, |.| 95%
+  RC grid: RC_k - RC_true as |.| median, |.| 95%, |.| max, mean
+  k=0   A 6.967e-02 1.496e-01 -2.985e-02   Ac/A 7.978e-02 1.542e-01   Acc/A 1.585e-02 5.201e-02   | 0.00272205 0.020081 0.177999 -0.00573272   cells 1249 (+0 in one only), nodes 2415
+  k=1   A 4.949e-03 2.370e-02 +7.627e-03   Ac/A 4.777e-03 2.708e-02   Acc/A 1.703e-03 8.867e-03   | 8.40699e-05 0.00219514 0.0309233 -0.000457536   cells 1249 (+0 in one only), nodes 2415
+  k=2   A 2.804e-04 2.923e-03 +7.017e-04   Ac/A 4.259e-04 4.249e-03   Acc/A 1.978e-04 1.723e-03   | 4.71417e-06 0.000344974 0.0055267 -5.89728e-05   cells 1249 (+0 in one only), nodes 2415
+  k=3   A 2.835e-05 4.377e-04 +9.568e-05   Ac/A 5.223e-05 6.882e-04   Acc/A 2.722e-05 3.098e-04   | 4.38527e-07 5.59554e-05 0.000998742 -8.97607e-06   cells 1249 (+0 in one only), nodes 2415
+
+rc_iterate.py's own convergence measure (change between iterations):
+  RC change vs iteration 0 over 2415 nodes: 95% 1.82e-02, median 2.66e-03, max 1.47e-01, mean +5.28e-03
+  RC change vs iteration 1 over 2415 nodes: 95% 1.94e-03, median 7.87e-05, max 2.54e-02, mean +3.99e-04
+  RC change vs iteration 2 over 2415 nodes: 95% 2.85e-04, median 4.26e-06, max 4.53e-03, mean +5.00e-05

@@ -1,0 +1,39 @@
+{
+  "source": "swif2 workflow rc_inb_C_D2_dc_fmt_20261017_1402: 50 inbending LD2+C runs, dc_fmt pass-1 ntuples, config rge_pip.cfg, 3 iterations, 50 grid chunks. Numbers from timing_report.py, MakeRCGrid compare/inspect and weight_summary.C, 2026-10-18.",
+  "timing": {
+    "steps": ["fill", "fit", "grid", "merge", "apply"],
+    "jobs": [150, 3, 150, 3, 150],
+    "wall_mean_s": [82, 22, 1500, 11, 130],
+    "wall_max_s": [191, 23, 1719, 14, 292],
+    "cpu_total_s": [7620, 31, 223740, 14, 13680],
+    "max_rss_mb": [528, 401, 313, 289, 402],
+    "wait_mean_s": [1048, 1176, 8040, 855, 1423],
+    "wait_max_s": [1440, 1218, 15660, 908, 2195],
+    "iteration_span_s": [22020, 21240, 23040],
+    "submission_to_end_s": 66720
+  },
+  "compare": {
+    "columns": ["nodes", "max", "median", "p95", "mean", "valid_in_one_only"],
+    "iter0_to_1": [43920, 116.19, 0.00450816, 0.0801012, 0.122198, 71],
+    "iter1_to_2": [43901, 349.035, 0.000235421, 0.0225885, 0.172956, 43]
+  },
+  "nodes": {
+    "columns": ["valid", "min", "p01", "p05", "median", "p95", "p99", "max", "le0", "lt05", "gt15", "gt2", "gt10"],
+    "iter0": [43987, -0.2577, 0.723, 0.7878, 0.9364, 1.286, 3.709, 148.4, 1, 6, 1512, 850, 34],
+    "iter2": [43921, 0.1413, 0.723, 0.7881, 0.9403, 1.354, 8.182, 1283, 0, 6, 1623, 1117, 408]
+  },
+  "events": {
+    "selected": 211168640,
+    "status_pct": {"iter0": [91.12, 8.86, 0.03, 0.00, 0.00], "iter2": [90.97, 9.01, 0.03, 0.00, 0.00]},
+    "percentiles": [1, 5, 50, 95, 99, 99.9],
+    "iter0": [0.815, 0.846, 0.960, 2.069, 3.608, 5.301],
+    "iter2": [0.816, 0.847, 0.970, 6.819, 20.900, 51.832],
+    "max": {"iter0": 74.86, "iter2": 1270},
+    "above_pct": {"thresholds": [1.5, 2, 10], "iter0": [8.061, 5.302, 0.000], "iter2": [11.589, 10.093, 3.354]}
+  },
+  "benchmark_3runs": {
+    "source": "rc_inb_C_D2_dc_fmt_20261016_0956: runs 020026, 020133, 020150, 2 iterations",
+    "compare_iter0_to_1": [35847, 1358.59, 0.00374779, 0.0393978, 0.0554318, 174],
+    "nodes_iter1": {"valid": 35862, "p99": 1.565, "gt2": 211, "gt10": 22}
+  }
+}
