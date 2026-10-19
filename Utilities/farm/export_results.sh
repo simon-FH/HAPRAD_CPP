@@ -6,9 +6,11 @@
 #   ./export_results.sh <workflow dir> [out.tgz]
 #
 # It takes a while, so run it detached from the terminal (tcsh suspends
-# background jobs that touch it):
+# background jobs that touch it). In tcsh, >&! overwrites an existing log even
+# with noclobber set; plain >& would fail, and the error message alone
+# suspends the job:
 #
-#   setsid nohup ./export_results.sh <workflow dir> < /dev/null >& export.log &
+#   setsid nohup ./export_results.sh <workflow dir> < /dev/null >&! export.log &
 #
 # Writes <workflow dir>/export/ (event_histograms.root, grid_<k>.root,
 # table_<k>.root, the workflow's settings and run list) and the tarball,
