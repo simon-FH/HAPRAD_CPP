@@ -21,3 +21,6 @@ validation/data
 validation/figures/*.pdf
 validation/figures/*.tsv
 !validation/figures/data/*.txt
+
+# Farm results copied here for plotting (export_results.sh)
+validation/figures/farm/

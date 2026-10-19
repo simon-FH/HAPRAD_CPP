@@ -1,0 +1,41 @@
+#!/bin/bash
+# export_results.sh -- pack a finished workflow's results for plotting on
+# another machine: event histograms of every iteration (event_histograms.C),
+# and each iteration's RC grid and table, into one tarball.
+#
+#   ./export_results.sh <workflow dir> [out.tgz]
+#
+# Writes <workflow dir>/export/ (event_histograms.root, grid_<k>.root,
+# table_<k>.root, the workflow's settings and run list) and the tarball,
+# by default <workflow dir>/export.tgz. Needs ROOT on PATH. The histograms
+# read every selected event of every run, so this takes a while (tens of
+# minutes for a full target).
+
+set -euo pipefail
+if [ $# -lt 1 ]; then
+  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+fi
+W=$(readlink -f "$1")
+OUT=$(readlink -f "${2:-$W/export.tgz}")
+HERE=$(dirname "$(readlink -f "$0")")
+E=$W/export
+mkdir -p "$E"
+
+# ---- Grids and tables of every iteration, under distinct names ----
+for d in "$W"/iter_*; do
+  k=${d##*_}
+  cp "$d/grid.root" "$E/grid_$k.root"
+  cp "$d/table.root" "$E/table_$k.root"
+done
+cp "$W/farm.cfg" "$W/runs.txt" "$W/jobs.tsv" "$E/"
+[ -d "$W/timing" ] && tar -C "$W" -cf "$E/timing.tar" timing
+
+# ---- Event histograms (the long part) ----
+echo "event histograms: started $(date '+%F %T')"
+root -l -b -q "$HERE/event_histograms.C(\"$W\", \"$E/event_histograms.root\")" | grep -v "^  \|^Processing"
+echo "event histograms: done $(date '+%F %T')"
+
+# ---- One file to copy ----
+tar -C "$W" -czf "$OUT" export
+echo "wrote $OUT ($(du -h "$OUT" | cut -f1))"
