@@ -29,9 +29,15 @@ Figures:
   fig05_port_validation  C++ against HAPRAD 2.0 FORTRAN, point by point
   fig06_normalisation    the absolute-normalisation closure of the table
   fig07_convergence      the RC iteration: toy closure against real data
-  fig08_data_rc          RC factors of the selected LD2+C events
+  fig08_data_rc          RC factors of the selected LD2+C events, every iteration
   fig09_table_shapes     why: phi shapes of the data table's cells
   fig10_farm_cost        CPU and wall time of the farm run
+  fig11_where_rc_gt2     where in the kinematics events get a factor above 2
+  fig12_coverage         table cells fitted / filled / empty, extreme grid nodes
+  fig13_data_vs_model    the data-driven eta(phi) against the model's
+
+fig07-09 and fig11-13 read the full LD2+C run from figures/farm/tsv/, made by
+export_results.sh on the farm and export_farm.C here.
 """
 
 import argparse
@@ -460,13 +466,88 @@ def parse_iteration(path):
     return truth, change
 
 
-def fig07(farm):
+FARMTSV = os.path.join(FIG, "farm", "tsv")
+FARM_NOTE = ("50 inbending LD2+C runs (dc_fmt pass-1 ntuples), farm workflow rc_inb_C_D2_dc_fmt_20261017_1402, "
+             "exported with export_results.sh and export_farm.C.")
+RAMP3 = ["#86b6ef", "#3987e5", "#0d366b"]  # ordinal blue steps 250 / 400 / 700: iterations 0, 1, 2
+EMPTY = "#e1e0d9"                          # neutral: a cell or region with nothing in it
+
+
+def farm_tsv(name):
+    """A TSV written by export_farm.C, as {column: numpy array}; None if absent."""
+    import numpy as np
+    path = os.path.join(FARMTSV, name)
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        lines = [l for l in f if not l.startswith("#")]
+    cols = lines[0].rstrip("\n").split("\t")
+    data = np.loadtxt(lines[1:], delimiter="\t", ndmin=2)
+    return {c: data[:, i] for i, c in enumerate(cols)}
+
+
+def node_grid(k):
+    """Iteration k's RC grid as (axes, rc, valid, nodes): axes the node values
+    per dimension (Q2, nu, z, pt, phi), rc = r_vr + r_in and valid as 5-D
+    arrays, nodes the raw columns."""
+    import numpy as np
+    n = farm_tsv("nodes_%d.tsv" % k)
+    keys = ["Q2", "nu", "z", "pt", "phi"]
+    axes = [np.unique(n[c]) for c in keys]
+    idx = tuple(np.searchsorted(a, n[c]) for a, c in zip(axes, keys))
+    rc = np.zeros(tuple(len(a) for a in axes))
+    valid = np.zeros(rc.shape, bool)
+    rc[idx] = n["r_vr"] + n["r_in"]
+    valid[idx] = n["valid"] > 0.5
+    return axes, rc, valid, n
+
+
+def grid_interp(axes, rc, valid, v):
+    """Multilinear interpolation of rc at v = (Q2, nu, z, pt, phi), as
+    RCGrid::Interpolate does: corners without a result are dropped and the
+    rest renormalised; nan outside the grid or with no valid corner."""
+    import itertools
+    import numpy as np
+    i0, f = [], []
+    for a, x in zip(axes, v):
+        t = (x - a[0]) / (a[1] - a[0])
+        if t < -1e-9 or t > len(a) - 1 + 1e-9:
+            return float("nan")
+        i = min(max(int(np.floor(t)), 0), len(a) - 2)
+        i0.append(i)
+        f.append(min(max(t - i, 0.), 1.))
+    s = wsum = 0.
+    for corner in itertools.product((0, 1), repeat=5):
+        w, ii = 1., []
+        for d, u in enumerate(corner):
+            w *= f[d] if u else 1. - f[d]
+            ii.append(i0[d] + u)
+        if w == 0. or not valid[tuple(ii)]:
+            continue
+        s += w * rc[tuple(ii)]
+        wsum += w
+    return s / wsum if wsum > 0 else float("nan")
+
+
+def nearest_rank(v, q):
+    """The q-quantile of sorted v as MakeRCGrid compare takes it."""
+    return v[min(len(v) - 1, int(q * (len(v) - 1) + 0.5))]
+
+
+def fig07():
+    import numpy as np
     plt = mpl()
     truth, change = parse_iteration(os.path.join(FIGDATA, "closure_iteration.txt"))
-    data = [(0, farm["compare"]["iter0_to_1"][2], farm["compare"]["iter0_to_1"][3]),
-            (1, farm["compare"]["iter1_to_2"][2], farm["compare"]["iter1_to_2"][3])]
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4.2), constrained_layout=True, sharey=True)
-    a0, a1, a2 = axes
+    grids = [node_grid(k) for k in range(3)]
+    diffs, data = [], []
+    for a in range(2):
+        both = grids[a][2] & grids[a + 1][2]
+        d = np.sort(np.abs(grids[a + 1][1][both] - grids[a][1][both]))
+        diffs.append(d)
+        data.append((a, nearest_rank(d, 0.5), nearest_rank(d, 0.95)))
+    fig, ax = plt.subplot_mosaic([["a", "b", "c"], ["d", "d", "d"]], figsize=(13, 8), constrained_layout=True,
+                                 gridspec_kw={"height_ratios": [1, 0.9]})
+    a0, a1, a2, a3 = ax["a"], ax["b"], ax["c"], ax["d"]
     a0.plot([t[0] for t in truth], [t[1] for t in truth], color=RAMP2[0], marker="o", label="median node")
     a0.plot([t[0] for t in truth], [t[2] for t in truth], color=RAMP2[1], marker="o", label="95th percentile node")
     a0.set_xlabel("iteration k")
@@ -474,93 +555,265 @@ def fig07(farm):
     a0.set_ylabel(r"|$\Delta$ RC factor|")
     a0.legend(loc="upper right")
     style(a0, "Toy: iteration k against the truth")
-    for ax, idx, title in ((a1, 1, "Change between iterations: median node"), (a2, 2, "... and 95th percentile node")):
-        ax.plot([c[0] + 0.5 for c in change], [c[idx] for c in change], color=CAT[0], marker="o", label="toy (closure)")
-        ax.plot([d[0] + 0.5 for d in data], [d[idx] for d in data], color=CAT[1], marker="o", label="RG-E LD2+C data")
-        ax.set_xticks([0.5, 1.5, 2.5])
-        ax.set_xticklabels(["0→1", "1→2", "2→3"])
-        ax.set_xlabel("iterations")
-        style(ax, title)
+    for axx, idx, title in ((a1, 1, "Change between iterations: median node"), (a2, 2, "... and 95th percentile node")):
+        axx.plot([c[0] + 0.5 for c in change], [c[idx] for c in change], color=CAT[0], marker="o", label="toy (closure)")
+        axx.plot([d[0] + 0.5 for d in data], [d[idx] for d in data], color=CAT[1], marker="o", label="RG-E LD2+C data")
+        axx.set_xticks([0.5, 1.5, 2.5])
+        axx.set_xticklabels(["0→1", "1→2", "2→3"])
+        axx.set_xlabel("iterations")
+        style(axx, title)
     a1.legend(loc="upper right")
-    for ax in axes:
-        ax.set_yscale("log")
+    for axx in (a0, a1, a2):
+        axx.set_yscale("log")
+        axx.set_ylim(1e-7, 0.5)
     a2.axhline(0.002, color=AXIS, linewidth=1)
     a2.annotate("rc_iterate.py tolerance", (2.6, 0.002), xytext=(0, 3), textcoords="offset points", ha="right", color=MUTED,
                 fontsize=9)
+    for d, label, c in zip(diffs, ("iteration 0 → 1", "iteration 1 → 2"), RAMP2):
+        frac = 1. - np.arange(len(d)) / len(d)
+        a3.step(np.maximum(d, 1e-8), frac, where="post", color=c, linewidth=2,
+                label="%s: %d nodes, %.1f%% change by > 0.1" % (label, len(d), 100. * np.mean(d > 0.1)))
+    a3.set_xscale("log")
+    a3.set_yscale("log")
+    a3.set_xlim(1e-7, 2e3)
+    a3.set_ylim(1e-5, 1.2)
+    a3.axvline(0.002, color=AXIS, linewidth=1)
+    a3.set_xlabel(r"|$\Delta$ RC factor| between iterations")
+    a3.set_ylabel("share of nodes with a larger change")
+    a3.legend(loc="lower left")
+    style(a3, "Data: every node valid in both iterations")
     rows = [("toy_vs_truth", k, m, p) for k, m, p in truth] + [("toy_change", k, m, p) for k, m, p in change] + \
            [("data_change", k, m, p) for k, m, p in data]
-    save(fig, "fig07_convergence", "The RC iteration: the bulk converges like the toy, the extreme nodes do not",
-         "Toy: 2M pions weighted by HAPRAD 2.0's Born cross section, observed = Born x RC_true (closure_iteration.py). "
-         "Data: 50 inbending LD2+C runs, dc_fmt, farm workflow rc_inb_C_D2_dc_fmt_20261017_1402.",
-         ["series", "k", "median", "p95"], rows)
+    save(fig, "fig07_convergence", "The RC iteration: the bulk converges like the toy, a tail of nodes does not",
+         "Toy: 2M pions weighted by HAPRAD 2.0's Born cross section, observed = Born x RC_true (closure_iteration.py). Data: "
+         + FARM_NOTE, ["series", "k", "median", "p95"], rows)
 
 
-def fig08(farm):
+def event_hist(k):
+    """Iteration k's selected-event RC factors: (log10 edges, counts, n_le0)."""
+    import numpy as np
+    path = os.path.join(FARMTSV, "logrc_%d.tsv" % k)
+    le0 = float(open(path).readline().split(":")[1].split()[0])
+    h = farm_tsv("logrc_%d.tsv" % k)
+    return h["log10rc_low"], h["log10rc_high"], h["events"], le0
+
+
+def share_above(k, t):
+    """Share of iteration k's selected events with a factor above t, from the
+    histogram (linear within the bin that contains t)."""
+    import numpy as np
+    lo, hi, n, le0 = event_hist(k)
+    L = math.log10(t)
+    above = n[lo >= L].sum()
+    part = (lo < L) & (hi > L)
+    above += (n[part] * (hi[part] - L) / (hi[part] - lo[part])).sum()
+    return above / (n.sum() + le0)
+
+
+def fig08():
+    import numpy as np
     plt = mpl()
-    ev = farm["events"]
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 4.4), constrained_layout=True)
-    pcs = ev["percentiles"]
-    xs = list(range(len(pcs)))
-    a1.axhspan(0.8, 1.2, color=BAND, linewidth=0, label="plausible range")
-    for it, c in zip(("iter0", "iter2"), RAMP2):
-        a1.plot(xs, ev[it], color=c, marker="o", label="iteration %s" % it[-1])
-        a1.annotate("%.3g" % ev[it][-1], (xs[-1], ev[it][-1]), xytext=(6, 0), textcoords="offset points", va="center",
-                    color=INK2, fontsize=9, annotation_clip=False)
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(13, 4.6), constrained_layout=True, gridspec_kw={"width_ratios": [1.6, 1]})
+    a1.axvspan(0.8, 1.2, color=BAND, linewidth=0, label="range of the model's factors (fig02)")
+    rows = []
+    for k, c in zip(range(3), RAMP3):
+        lo, hi, n, le0 = event_hist(k)
+        inner = (lo > -100) & (hi < 100)
+        lo_i, n_i = lo[inner], n[inner]
+        # Rebin 1600 bins of 0.00375 in log10 into 200 of 0.03.
+        nb = 8
+        m = len(n_i) // nb * nb
+        edges = np.append(lo_i[:m:nb], lo_i[m - 1] + (lo_i[1] - lo_i[0]))
+        counts = n_i[:m].reshape(-1, nb).sum(axis=1)
+        total = n.sum() + le0
+        frac = counts / total
+        cum = np.cumsum(n_i) / n_i.sum()
+        median = 10. ** np.interp(0.5, cum, lo_i + (lo_i[1] - lo_i[0]))
+        a1.stairs(np.maximum(frac, 1e-12), 10. ** edges, color=c, linewidth=1.8, label="iteration %d: median %.3f" % (k, median))
+        rows += [("iteration_%d" % k, 10. ** a, 10. ** b, f) for a, b, f in zip(edges[:-1], edges[1:], frac)]
+    a1.set_xscale("log")
     a1.set_yscale("log")
-    from matplotlib.ticker import FixedLocator, NullLocator
-    a1.yaxis.set_major_locator(FixedLocator([0.5, 1, 2, 5, 10, 20, 50]))
-    a1.yaxis.set_minor_locator(NullLocator())
-    a1.set_yticklabels(["0.5", "1", "2", "5", "10", "20", "50"])
-    a1.set_xticks(xs)
-    a1.set_xticklabels(["%g%%" % p for p in pcs])
-    a1.set_xlabel("percentile of the selected events")
-    a1.set_ylabel("RC factor (without exclusive tail)")
-    a1.legend(loc="upper left")
-    style(a1, "RC factor of the %.0f M selected events" % (ev["selected"] / 1e6))
-    th = ev["above_pct"]["thresholds"]
-    w = 0.36
-    for j, (it, c) in enumerate(zip(("iter0", "iter2"), RAMP2)):
-        pos = [i + (j - 0.5) * (w + 0.04) for i in range(len(th))]
-        a2.bar(pos, ev["above_pct"][it], width=w, color=c, label="iteration %s" % it[-1])
-        for p, v in zip(pos, ev["above_pct"][it]):
-            a2.annotate("%.1f%%" % v, (p, v), xytext=(0, 3), textcoords="offset points", ha="center", color=INK2, fontsize=9)
+    a1.set_xlim(0.3, 3000)
+    a1.set_ylim(1e-9, 0.2)
+    a1.set_xlabel("RC factor η (without exclusive tail)")
+    a1.set_ylabel("share of selected events per bin")
+    a1.legend(loc="upper right")
+    style(a1, "RC factor of the 211 M selected events")
+    th = [1.5, 2., 10.]
+    w = 0.26
+    for j, (k, c) in enumerate(zip(range(3), RAMP3)):
+        pos = [i + (j - 1) * (w + 0.03) for i in range(len(th))]
+        vals = [100. * share_above(k, t) for t in th]
+        a2.bar(pos, vals, width=w, color=c, label="iteration %d" % k)
+        for p, v in zip(pos, vals):
+            a2.annotate("%.1f" % v, (p, v), xytext=(0, 3), textcoords="offset points", ha="center", color=INK2, fontsize=8.5)
+        rows += [("above_%g_iteration_%d" % (t, k), t, 0., v) for t, v in zip(th, vals)]
     a2.set_xticks(range(len(th)))
     a2.set_xticklabels(["> %g" % t for t in th])
     a2.set_xlabel("RC factor")
     a2.set_ylabel("share of selected events [%]")
     a2.legend(loc="upper right")
     style(a2, "Events with an implausible factor")
-    rows = [("percentile_%g" % p, ev["iter0"][i], ev["iter2"][i]) for i, p in enumerate(pcs)] + \
-           [("above_%g_pct" % t, ev["above_pct"]["iter0"][i], ev["above_pct"]["iter2"][i]) for i, t in enumerate(th)]
-    save(fig, "fig08_data_rc", "RG-E LD2+C, 50 inbending runs: the bulk is sensible, a tail of events is not",
-         "weight_summary.C over the RC friends of farm workflow rc_inb_C_D2_dc_fmt_20261017_1402. Table from data, not acceptance-"
-         "corrected; 91% of selected events have full RC-grid support, 0.03% none.", ["quantity", "iteration_0", "iteration_2"], rows)
+    save(fig, "fig08_data_rc", "RG-E LD2+C: the bulk of the RC factors is sensible, a tail is not, and the iteration grows it",
+         "The band marks the range HAPRAD gives with HAPRAD 2.0's own model (fig02), as a scale for plausible factors. Table from data, "
+         "not acceptance-corrected; 91% of selected events have full RC-grid support, 0.03% none. " + FARM_NOTE,
+         ["series", "rc_low_or_threshold", "rc_high", "share"], rows)
 
 
 def fig09():
+    import numpy as np
     plt = mpl()
-    load = lambda f: [float(l.split("\t")[7]) for l in open(os.path.join(FIGDATA, f)) if not l.startswith(("#", "Q2"))]
-    sets = [("HAPRAD 2.0 model table", load("shapes_model.tsv"), CAT[0]), ("data table, run 020026", load("shapes_data_020026.tsv"), CAT[1])]
-    fig, ax = plt.subplots(figsize=(9, 4.4), constrained_layout=True)
-    edges = [-1.0 + 0.05 * i for i in range(45)]
+    model = [float(l.split("\t")[7]) for l in open(os.path.join(FIGDATA, "shapes_model.tsv")) if not l.startswith(("#", "Q2"))]
+    c = farm_tsv("cells_0.tsv")
+    fit = c["state"] == 0
+    pt = np.sqrt(c["pt2"][fit])
+    a, rc, rcc = c["A"][fit], c["Ac_red"][fit] * pt / c["A"][fit], c["Acc_red"][fit] * c["pt2"][fit] / c["A"][fit]
+    phis = np.radians(np.arange(0, 361))
+    data = np.min(1. + np.outer(rc, np.cos(phis)) + np.outer(rcc, np.cos(2 * phis)), axis=1)
+    sets = [("HAPRAD 2.0 model table", np.array(model), CAT[0]), ("RG-E LD2+C data table, 50 runs", data, CAT[1])]
+    fig, ax = plt.subplots(figsize=(9.5, 4.6), constrained_layout=True)
+    edges = np.linspace(-0.5, 1.2, 69)
     rows = []
-    for label, v, c in sets:
-        n = len(v)
-        counts = [sum(1 for x in v if a <= x < b) / n for a, b in zip(edges[:-1], edges[1:])]
-        ax.stairs(counts, edges, color=c, linewidth=2, label="%s: %d cells, %.0f%% at or below 0" % (label, n, 100. * sum(x <= 0 for x in v) / n))
-        rows += [(label, a, b, k) for a, b, k in zip(edges[:-1], edges[1:], counts)]
+    for label, v, col in sets:
+        counts = np.histogram(np.clip(v, edges[0] + 1e-9, None), edges)[0] / len(v)
+        ax.stairs(counts, edges, color=col, linewidth=2,
+                  label="%s: %d cells, %.0f%% at or below 0" % (label, len(v), 100. * np.mean(v <= 0)))
+        rows += [(label, a_, b_, k_) for a_, b_, k_ in zip(edges[:-1], edges[1:], counts)]
     ax.axvline(0., color=AXIS, linewidth=1)
-    ax.annotate("Born cross section\nnegative at some φ", (-0.02, ax.get_ylim()[1] * 0.92), ha="right", va="top", color=INK2,
-                fontsize=9)
-    ax.set_xlabel(r"minimum over $\phi_h$ of  1 + (A$_c$/A) cos $\phi_h$ + (A$_{cc}$/A) cos 2$\phi_h$")
+    ax.annotate("Born cross section\nnegative at some φ", (-0.03, 0.97), xycoords=("data", "axes fraction"), ha="right",
+                va="top", color=INK2, fontsize=9)
+    ax.set_xlabel(r"minimum over $\phi_h$ of  1 + (A$_c$/A) cos $\phi_h$ + (A$_{cc}$/A) cos 2$\phi_h$  (at the cell centre)")
     ax.set_ylabel("fraction of fitted cells")
-    ax.set_xlim(-1, 1.2)
-    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 0.8))
+    ax.set_xlim(edges[0], edges[-1])
+    ax.legend(loc="upper left", bbox_to_anchor=(0.0, 0.82))
     style(ax)
     save(fig, "fig09_table_shapes", "Why: the data table's phi modulations carry the detector acceptance",
-         "Each fitted cell's Born phi shape at its centre (table_shapes.C). Physical modulations keep it well above 0. Data: run 020026 "
-         "dc_fmt, raw yields (not acceptance-corrected); 464 of the 492 cells below 0.5 have modulations > 3 sigma from zero.",
+         "Each fitted cell's Born phi shape at its centre. Physical modulations keep it well above 0. Data: the iteration-0 table "
+         "of the full run, raw yields (not acceptance-corrected); values below -0.5 are counted in the first bin. " + FARM_NOTE,
          ["table", "bin_low", "bin_high", "fraction"], rows)
+
+
+def heat_cmap():
+    from matplotlib.colors import LinearSegmentedColormap
+    cm = LinearSegmentedColormap.from_list("blue_seq", ["#cde2fb", "#6da7ec", "#256abf", "#0d366b"])
+    cm.set_bad(EMPTY)
+    return cm
+
+
+def fig11():
+    import numpy as np
+    plt = mpl()
+    projections = [("Q2_y", "y", r"Q$^2$ [GeV$^2$]"), ("z_pt2", r"$p_t^2$ [GeV$^2$]", "z"), ("phi_y", "y", r"$\phi_h$ [deg]")]
+    fig, axes = plt.subplots(2, 3, figsize=(13, 7.6), constrained_layout=True)
+    rows, mesh = [], None
+    for r, k in enumerate((0, 2)):
+        for col, (v, xl, yl) in enumerate(projections):
+            m = farm_tsv("map_%s_%d.tsv" % (v, k))
+            xe, ye = np.unique(np.append(m["x_low"], m["x_high"])), np.unique(np.append(m["y_low"], m["y_high"]))
+            allc = m["all"].reshape(len(xe) - 1, len(ye) - 1).T
+            gt2 = m["gt2"].reshape(len(xe) - 1, len(ye) - 1).T
+            share = np.ma.masked_where(allc < 1000, gt2 / np.maximum(allc, 1))
+            ax = axes[r][col]
+            mesh = ax.pcolormesh(xe, ye, share, cmap=heat_cmap(), vmin=0, vmax=1, shading="flat")
+            ax.set_xlabel(xl)
+            ax.set_ylabel(yl)
+            style(ax, "Iteration %d" % k if col == 0 else None)
+            ax.grid(False)
+            tot = 100. * m["gt2"].sum() / m["all"].sum()
+            ax.annotate("%.1f%% of these events" % tot, (0.98, 0.97), xycoords="axes fraction", ha="right", va="top", color=INK2,
+                        fontsize=9, bbox=dict(boxstyle="round,pad=0.25", fc=SURFACE, ec="none", alpha=0.85))
+            rows += [("%s_iter%d" % (v, k), a, b, c, d, n, g) for a, b, c, d, n, g in
+                     zip(m["x_low"], m["x_high"], m["y_low"], m["y_high"], m["all"], m["gt2"])]
+    cb = fig.colorbar(mesh, ax=axes, shrink=0.8, pad=0.01)
+    cb.set_label("share of the bin's events with RC factor > 2", color=INK2)
+    cb.outline.set_visible(False)
+    save(fig, "fig11_where_rc_gt2", "Where the implausible factors are: events with RC factor > 2",
+         "Selected events with an RC factor, binned in the event's own kinematics; grey: bins with fewer than 1000 events. "
+         + FARM_NOTE, ["map", "x_low", "x_high", "y_low", "y_high", "events", "events_rc_gt2"], rows)
+
+
+def fig12():
+    import numpy as np
+    plt = mpl()
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.4), constrained_layout=True, gridspec_kw={"width_ratios": [1.1, 1, 1]})
+    a0 = axes[0]
+    rows = []
+    states = [("fitted from data", CAT[0]), ("filled from fitted neighbours", CAT[2]), ("empty", EMPTY)]
+    for k in range(3):
+        st = farm_tsv("cells_%d.tsv" % k)["state"]
+        left = 0
+        for s, (label, col) in enumerate(states):
+            n = int(np.sum(st == s))
+            a0.barh(k, n, left=left, height=0.55, color=col, label=label if k == 0 else None)
+            if s < 2:
+                a0.annotate("%d" % n, (left + n / 2., k), ha="center", va="center", color=SURFACE, fontsize=8.5)
+            left += n + 400
+            rows.append(("cells_iter%d" % k, label, n))
+    a0.set_yticks(range(3))
+    a0.set_yticklabels(["iteration %d" % k for k in range(3)])
+    a0.set_ylim(2.6, -0.9)
+    a0.set_xlabel("table cells, thousands (%d in all)" % len(st))
+    from matplotlib.ticker import FuncFormatter
+    a0.xaxis.set_major_formatter(FuncFormatter(lambda v, _: "%d" % (v / 1000)))
+    a0.legend(loc="upper right", ncol=1, fontsize=8.5)
+    style(a0, "The table: what the tails can draw on")
+    mesh = None
+    for ax, k in zip(axes[1:], (0, 2)):
+        axes_k, rc, valid, _ = node_grid(k)
+        q2, nu = axes_k[0], axes_k[1]
+        bad = (valid & ((rc < 0.5) | (rc > 2.))).sum(axis=(2, 3, 4))
+        nval = valid.sum(axis=(2, 3, 4))
+        share = np.ma.masked_where(nval == 0, bad / np.maximum(nval, 1))
+        dq, dn = q2[1] - q2[0], nu[1] - nu[0]
+        mesh = ax.pcolormesh(np.append(nu - dn / 2, nu[-1] + dn / 2), np.append(q2 - dq / 2, q2[-1] + dq / 2), share,
+                             cmap=heat_cmap(), vmin=0, vmax=0.3, shading="flat")
+        ax.set_xlabel(r"$\nu$ [GeV]   (y = $\nu$/E)")
+        ax.set_ylabel(r"Q$^2$ [GeV$^2$]")
+        ax.grid(False)
+        style(ax, "RC-grid nodes, iteration %d" % k)
+        ax.grid(False)
+        ax.annotate("%d of %d valid nodes\noutside [0.5, 2]" % (int(bad.sum()), int(nval.sum())), (0.03, 0.97),
+                    xycoords="axes fraction", ha="left", va="top", color=INK2, fontsize=9,
+                    bbox=dict(boxstyle="round,pad=0.25", fc=SURFACE, ec="none", alpha=0.85))
+        for i, qq in enumerate(q2):
+            for j, nn in enumerate(nu):
+                rows.append(("nodes_iter%d" % k, "Q2=%g nu=%g" % (qq, nn), "%d/%d" % (bad[i, j], nval[i, j])))
+    cb = fig.colorbar(mesh, ax=axes[1:], shrink=0.85, pad=0.01)
+    cb.set_label("share of valid nodes outside [0.5, 2]", color=INK2)
+    cb.outline.set_visible(False)
+    save(fig, "fig12_coverage", "Coverage: a third of the table holds data or a fill, and the extreme grid nodes sit at the edges",
+         "Left: 4-D table cells (18 Q2 x 16 nu x 20 z x 24 pt2). Fill: TSemiInclusiveModel's second-neighbour copy (a fitted cell "
+         "with A > 0 in the 3^4 block). Maps: valid RC-grid nodes summed over z, p_t and phi; grey: no valid node. " + FARM_NOTE,
+         ["series", "category", "value"], rows)
+
+
+def fig13(scan):
+    import numpy as np
+    plt = mpl()
+    grids = [node_grid(k) for k in range(3)]
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.4), constrained_layout=True, sharey=True)
+    rows = []
+    for ax, y in zip(axes, (0.5, 0.8)):
+        model = [scan[(BASE["Q2"], y, BASE["z"], BASE["pt"], p)] for p in PHIS]
+        ax.plot(PHIS, [(r[1] + r[2]) / r[0] for r in model], color=CAT[1], marker="o", label="HAPRAD 2.0 model table")
+        nu = y * E
+        for k, c in zip(range(3), RAMP3):
+            phis = np.arange(0, 181, 5)
+            eta = [grid_interp(grids[k][0], grids[k][1], grids[k][2], (BASE["Q2"], nu, BASE["z"], BASE["pt"], p)) for p in phis]
+            ax.plot(phis, eta, color=c, label="data table, iteration %d" % k)
+            rows += [("data_iter%d_y%g" % (k, y), float(p), e) for p, e in zip(phis, eta)]
+        rows += [("model_y%g" % y, float(p), (r[1] + r[2]) / r[0]) for p, r in zip(PHIS, model)]
+        ax.axhline(1., color=AXIS, linewidth=1)
+        ax.set_xlim(0, 180)
+        ax.set_xticks(range(0, 181, 30))
+        ax.set_xlabel(r"$\phi_h$ [deg]")
+        style(ax, r"y = %g  ($\nu$ = %.2f GeV, x = %.3f)" % (y, nu, x_of(BASE["Q2"], y)))
+    axes[0].set_ylabel(r"$\eta = \sigma_{\mathrm{obs}} / \sigma_{\mathrm{Born}}$")
+    axes[0].legend(loc="best")
+    save(fig, "fig13_data_vs_model", r"The same kinematics, two tables: Q$^2$ = %g GeV$^2$, z = %g, $p_t$ = %g GeV"
+         % (BASE["Q2"], BASE["z"], BASE["pt"]),
+         "Model: rc_point with the tabulated HAPRAD 2.0 PDF x FF model. Data: the RC grid of each iteration interpolated as ApplyRC "
+         "does. Both without the exclusive tail. " + FARM_NOTE, ["series", "phi_deg", "eta"], rows)
 
 
 def fig10(farm):
@@ -621,13 +874,15 @@ def main():
     if do("fig06"):
         fig06()
     farm = json.load(open(os.path.join(FIGDATA, "farm_C_D2_20261017.json")))
-    for f in (fig07, fig08):
-        if do(f.__name__):
-            f(farm)
-    if do("fig09"):
-        fig09()
     if do("fig10"):
         fig10(farm)
+    full = [f for f in (fig07, fig08, fig09, fig11, fig12, fig13) if do(f.__name__)]
+    if full and not os.path.exists(os.path.join(FARMTSV, "nodes_0.tsv")):
+        print("skipping %s: no full-run export in %s (export_results.sh, then export_farm.C)"
+              % (", ".join(f.__name__ for f in full), FARMTSV))
+        full = []
+    for f in full:
+        f(load_scan(table, False, args.jobs)) if f is fig13 else f()
 
 
 if __name__ == "__main__":
