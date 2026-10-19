@@ -47,4 +47,6 @@ echo "event histograms: done $(date '+%F %T')"
 
 # ---- One file to copy ----
 tar -C "$W" -czf "$OUT" export
-echo "wrote $OUT ($(du -h "$OUT" | cut -f1))"
+# The file's own size: du reports allocated blocks, which Lustre may not have
+# counted yet right after the write.
+echo "wrote $OUT ($(stat -c %s "$OUT") bytes)"
