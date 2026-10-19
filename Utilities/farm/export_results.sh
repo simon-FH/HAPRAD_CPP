@@ -33,7 +33,9 @@ cp "$W/farm.cfg" "$W/runs.txt" "$W/jobs.tsv" "$E/"
 
 # ---- Event histograms (the long part) ----
 echo "event histograms: started $(date '+%F %T')"
-root -l -b -q "$HERE/event_histograms.C(\"$W\", \"$E/event_histograms.root\")" | grep -v "^  \|^Processing"
+# stdin from /dev/null: ROOT otherwise sets up the terminal for input, which
+# suspends the script when it runs in the background ("tty output").
+root -l -b -q "$HERE/event_histograms.C(\"$W\", \"$E/event_histograms.root\")" < /dev/null | grep -v "^  \|^Processing"
 echo "event histograms: done $(date '+%F %T')"
 
 # ---- One file to copy ----
