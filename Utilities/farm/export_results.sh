@@ -5,6 +5,11 @@
 #
 #   ./export_results.sh <workflow dir> [out.tgz]
 #
+# It takes a while, so run it detached from the terminal (tcsh suspends
+# background jobs that touch it):
+#
+#   setsid nohup ./export_results.sh <workflow dir> < /dev/null >& export.log &
+#
 # Writes <workflow dir>/export/ (event_histograms.root, grid_<k>.root,
 # table_<k>.root, the workflow's settings and run list) and the tarball,
 # by default <workflow dir>/export.tgz. Needs ROOT on PATH. The histograms
