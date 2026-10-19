@@ -24,3 +24,6 @@ validation/figures/*.tsv
 
 # Farm results copied here for plotting (export_results.sh)
 validation/figures/farm/
+
+# Rebuildable structure-function tables (make_model_table)
+validation/tables/
