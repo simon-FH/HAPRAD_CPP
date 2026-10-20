@@ -134,12 +134,13 @@ of the full LD2+C run gave its most extreme factors. The results are cached in
 minutes on 14 cores. The model table is the one `make_model_table` builds with
 `B="18:0.5:10,16:1:10.5,20:0:1,24:0:1.5"` at E = 10.5473 (section above).
 
-At 22 of the 400 points both codes evaluate, the C++ exclusive tail is more
-than 1% below the FORTRAN's, by up to 51% at one point. The adaptive cubature in
-`TRadCor::ExclusiveRadiativeTail` sets no minimum number of evaluations, while
-the FORTRAN's D01FCE call requires 10,000 per sub-region, so the C++ can accept
-an early, wrong error estimate. The RC weights leave this tail out
-(`rc_exclusive_tail = no`).
+The exclusive tail agrees with the FORTRAN to 8e-5 at all 412 points both codes
+evaluate. That needs the FORTRAN's minimum of 10,000 evaluations per sub-region
+(`SetMinPts` in `TRadCor::ExclusiveRadiativeTail`, D01FCE's `minpts`): without
+it the adaptive cubature can stop on an error estimate that misses a collinear
+peak, and 35 of these points come out more than 0.1% low, one by 51%. A higher
+evaluation limit alone does not help; the minimum costs about a third more time
+per point.
 
 ## The tiers
 
@@ -163,7 +164,7 @@ semi-inclusive model is still missing.
                 no table                      --table toy_reduced.root
 Tier 0 : pass   (4 of 5 checks SKIP)          pass, all 5 checks run
 Tier 1 : pass   ~4e-14 at 6 and 10.5 GeV      unchanged
-Tier 2 : pass   3e-5 .. 1.5e-4                unchanged
+Tier 2 : pass   ~1.5e-5                       unchanged
 Tier 3 : FAIL   sigma_Born = 0                FAIL by construction: a toy table and
                                               HAPRAD 2.0's PDF x FF model are
                                               different physics (PLAN.md 2.3)
@@ -212,7 +213,8 @@ now uses deterministic adaptive cubature (Genz-Malik, the same family as the
 FORTRAN's NAG D01FCE) rather than MISER Monte Carlo capped at 20000 calls. That
 was *not* the bug -- both integrators gave the same answer -- but on this
 sharply peaked integrand MISER agreed with the reference only to ~1.4e-3 where
-adaptive reaches ~5e-5.
+adaptive reaches ~5e-5. The broad comparison later showed the cubature also
+needs D01FCE's minimum number of evaluations (section "Broad comparison").
 
 ### What Tier 0 found (hurdle H4)
 

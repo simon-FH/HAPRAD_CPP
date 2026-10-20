@@ -514,12 +514,13 @@ def fig19(broad):
     c = ax["c"]
     tail = np.array([r["tai_ex_cpp"] / r["tai_ex_f77"] for r in both if r["tai_ex_f77"] > 0])
     order = np.sort(tail)
-    c.plot(np.arange(len(order)), order, color=CAT[0], marker="o", markersize=3, linewidth=1)
-    c.axhline(1., color=AXIS, linewidth=1)
+    c.plot(np.arange(len(order)), order - 1., color=CAT[0], marker="o", markersize=3, linewidth=1)
+    c.axhline(0., color=AXIS, linewidth=1)
+    c.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
     c.set_xlabel("grid points, sorted")
-    c.set_ylabel("exclusive tail, C++ / FORTRAN")
-    style(c, "Exclusive tail: %d of %d points more than 1%% low" % (np.sum(tail < 0.99), len(tail)))
-    c.annotate("TRadCor.cxx's adaptive cubature sets no minimum\nnumber of evaluations (the FORTRAN's D01FCE: 10,000)\nand stops early; the weights leave this tail out",
+    c.set_ylabel("exclusive tail, C++ / FORTRAN − 1")
+    style(c, "Exclusive tail: within %.0e of the FORTRAN at all %d points" % (np.max(np.abs(tail - 1)), len(tail)))
+    c.annotate("adaptive cubature with the FORTRAN's D01FCE settings,\nincluding its minimum of 10,000 evaluations per sub-region",
                (0.98, 0.05), xycoords="axes fraction", ha="right", va="bottom", color=INK2, fontsize=9)
     d = ax["d"]
     nodes = [r for r in broad if r["set"] == "node"]

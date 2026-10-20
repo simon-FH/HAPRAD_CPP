@@ -12,7 +12,7 @@
 #include "haprad_constants.h"
 #include "square_power.h"
 #include "Math/GSLIntegrator.h"
-#include "Math/IntegratorMultiDim.h"
+#include "Math/AdaptiveIntegratorMultiDim.h"
 #include "ConfigFile.h"
 #include <iostream>
 #include <iomanip>
@@ -365,12 +365,14 @@ Double_t TRadCor::ExclusiveRadiativeTail(void) {
 
   // Deterministic adaptive cubature (Genz-Malik), the same family as the NAG
   // D01FCE the original FORTRAN uses, with matching settings: relative
-  // tolerance 1e-3, up to 1e5 points. The integrand is sharply peaked at the
-  // collinear singularities tau_s = -Q2/S and tau_p = Q2/X, spanning five
-  // orders of magnitude inside a single sub-box; adaptive subdivision resolves
-  // these peaks, where a Monte Carlo sampler at this budget does not (it
-  // agrees with the FORTRAN to ~1e-3, cubature to ~5e-5).
-  ROOT::Math::IntegratorMultiDim ig(ROOT::Math::IntegrationMultiDim::kADAPTIVE, 1E-12, 1E-3, 100000);
+  // tolerance 1e-3, at least 1e4 and up to 1e5 points per sub-region. The
+  // integrand is sharply peaked at the collinear singularities tau_s = -Q2/S
+  // and tau_p = Q2/X, spanning five orders of magnitude inside a single
+  // sub-box; adaptive subdivision resolves these peaks, where a Monte Carlo
+  // sampler at this budget does not. The minimum matters: with few points the
+  // error estimate can miss a peak and stop early, up to 50% low.
+  ROOT::Math::AdaptiveIntegratorMultiDim ig(1E-12, 1E-3, 100000);
+  ig.SetMinPts(10000);
   TRV2TR rv2tr(this);
   ig.SetFunction(rv2tr);
 
