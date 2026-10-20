@@ -120,6 +120,27 @@ distance of table_k from T_B and of grid_k from the true grid measures the
 convergence alone. About 12 minutes for 2M events and 4 iterations on 14
 cores (six RC grids of 5,250 nodes).
 
+### Broad comparison
+
+```bash
+./make_figures.py --table tables/model_table_E10.5473.root --only fig19 --recompute
+```
+
+`rc_point` with the tabulated HAPRAD 2.0 model against `haprad2_point` at 504
+RG-E points (Q2 = 1.5-6 GeV^2, y = 0.35-0.8, z = 0.2-0.6, p_t = 0.2-0.8 GeV,
+phi = 0-180 deg, W > 2 GeV), and at the 17 RC-grid nodes where the data table
+of the full LD2+C run gave its most extreme factors. The results are cached in
+`figures/data/broad_comparison.tsv`; `fig19_port_broad` plots them. About 3
+minutes on 14 cores. The model table is the one `make_model_table` builds with
+`B="18:0.5:10,16:1:10.5,20:0:1,24:0:1.5"` at E = 10.5473 (section above).
+
+At 22 of the 400 points both codes evaluate, the C++ exclusive tail is more
+than 1% below the FORTRAN's, by up to 51% at one point. The adaptive cubature in
+`TRadCor::ExclusiveRadiativeTail` sets no minimum number of evaluations, while
+the FORTRAN's D01FCE call requires 10,000 per sub-region, so the C++ can accept
+an early, wrong error estimate. The RC weights leave this tail out
+(`rc_exclusive_tail = no`).
+
 ## The tiers
 
 They are ordered so that a failure in one invalidates the ones below it.

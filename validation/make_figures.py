@@ -20,6 +20,8 @@ shows in figures/<name>.tsv. Inputs:
   figures/data/shapes_*.tsv         table_shapes.C on a data table and on the
                                     model table
   figures/data/farm_*.json          the full LD2+C farm run, summarised
+  figures/data/broad_comparison.tsv C++ and FORTRAN at 504 grid points and 17
+                                    nodes (load_broad; a few minutes to recompute)
 
 Figures:
   fig01_rc_vs_phi        eta against phi_h at four y, and its parts
@@ -40,6 +42,7 @@ Figures:
   fig16_output_parts     its two parts (virtual + soft, inelastic tail), every iteration
   fig17_output_table     the weights' effect on the table: yields and modulations
   fig18_output_cells     single table cells' phi shapes, every iteration
+  fig19_port_broad       C++ against FORTRAN at 504 RG-E points and the full run's extreme nodes
 
 fig07-09 and fig11-18 read the full LD2+C run from figures/farm/tsv/, made by
 export_results.sh on the farm and export_farm.C here.
@@ -406,6 +409,151 @@ def fig05(port):
          "Same inputs to both codes. The Born cross section and η need a structure-function table on the C++ side: HAPRAD 2.0's own "
          "model, tabulated (RG-E points only). Remaining η differences: interpolation in the table, and exp(δ_inf) vs the linear form.",
          ["quantity", "point", "relative_difference"], rows)
+
+
+# The broad comparison: a grid over the RG-E acceptance, and the RC-grid
+# nodes where the data table of the full LD2+C run gave its most extreme
+# factors (Q2, nu, z, pt, phi), both codes with HAPRAD 2.0's model.
+BROAD_GRID = dict(Q2=[1.5, 2.5, 4.0, 6.0], y=[0.35, 0.5, 0.65, 0.8], z=[0.2, 0.4, 0.6], pt=[0.2, 0.5, 0.8], phi=[0, 60, 120, 180])
+EXTREME_NODES = [(1, 8, 0.25, 0.25, 15), (1, 7, 0.15, 0.25, 0), (1, 9, 0.75, 0.5, 15), (1, 6, 0.15, 0.25, 0), (2, 9, 0.35, 0.25, 0),
+                 (2, 7, 0.65, 0.25, 15), (1, 6, 0.15, 0.125, 90), (8, 9, 0.25, 0.25, 30), (2, 5, 0.45, 0.375, 0),
+                 (2, 8, 0.45, 0.5, 15), (2, 9, 0.85, 1.0, 15), (3, 9, 0.65, 0.375, 30), (7, 9, 0.45, 0.25, 30),
+                 (3, 6, 0.85, 0.5, 15), (4, 6, 0.75, 0.75, 15), (2, 8, 0.95, 0.25, 0), (7, 7, 0.75, 0.625, 15)]
+BROAD_RES = ["sib", "sig_obs", "tai_in", "tai_ex"]
+
+
+def broad_points():
+    """(set, E, x, Q2, z, pt, phi) of the broad comparison: the grid points
+    above the resonance region (W > 2 GeV) with x < 1, then the nodes."""
+    import itertools
+    pts = []
+    g = BROAD_GRID
+    for Q2, y, z, pt, phi in itertools.product(g["Q2"], g["y"], g["z"], g["pt"], g["phi"]):
+        x = x_of(Q2, y)
+        if x < 1 and M * M + Q2 * (1 / x - 1) > 4.0:
+            pts.append(("grid", E, x, Q2, z, pt, float(phi)))
+    pts += [("node", E, Q2 / (2 * M * nu), Q2, z, pt, float(phi)) for Q2, nu, z, pt, phi in EXTREME_NODES]
+    return pts
+
+
+def load_broad(table, recompute, jobs):
+    """Per point of broad_points(): the C++ and FORTRAN sigma_Born, sig_obs,
+    tai_in, tai_ex (nan where a code returns nothing: the FORTRAN's model
+    stops when its <cos phi> is too large); cached in broad_comparison.tsv."""
+    path = os.path.join(FIGDATA, "broad_comparison.tsv")
+    cols = ["set", "E", "x", "Q2", "z", "pt", "phi"] + ["%s_%s" % (k, c) for c in ("cpp", "f77") for k in BROAD_RES]
+    if os.path.exists(path) and not recompute:
+        out = []
+        for l in open(path):
+            if l.startswith("#"):
+                continue
+            f = l.split()
+            out.append(dict(zip(cols, [f[0]] + [float(v) for v in f[1:]])))
+        return out
+    if not table:
+        raise SystemExit("broad comparison: no cache in %s, and --table not given" % path)
+
+    def res(binary, p):
+        r = run_driver(binary, p, table if binary == "rc_point" else None).get("RES", {})
+        ok = r.get("kin_ok", 0) and r.get("sib", 0) > 0
+        return [r[k] if ok else float("nan") for k in BROAD_RES]
+
+    def one(q):
+        p = q[1:]
+        return dict(zip(cols, list(q) + res("rc_point", p) + res("haprad2_point", p)))
+
+    with ThreadPoolExecutor(jobs) as pool:
+        out = list(pool.map(one, broad_points()))
+    with open(path, "w") as f:
+        f.write("# C++ (rc_point, table %s) vs HAPRAD 2.0 (haprad2_point), E = %g GeV; nan: no result\n# %s\n"
+                % (os.path.basename(table), E, " ".join(cols)))
+        for r in out:
+            f.write(r["set"] + " " + " ".join("%.10g" % r[k] for k in cols[1:]) + "\n")
+    return out
+
+
+def fig19(broad):
+    import numpy as np
+    plt = mpl()
+    eta = lambda r, c: (r["sig_obs_" + c] + r["tai_in_" + c]) / r["sib_" + c]
+    grid = [r for r in broad if r["set"] == "grid"]
+    both = [r for r in grid if np.isfinite(r["sib_cpp"]) and np.isfinite(r["sib_f77"])]
+    refused = [r for r in grid if np.isfinite(r["sib_cpp"]) and not np.isfinite(r["sib_f77"])]
+    born = np.array([abs(r["sib_cpp"] / r["sib_f77"] - 1) for r in both])
+    de = np.array([eta(r, "cpp") - eta(r, "f77") for r in both])
+    classes = [("table Born within 5%", born < 0.05, CAT[0]), ("5-20%", (born >= 0.05) & (born <= 0.2), CAT[2]),
+               ("off by > 20%", born > 0.2, CAT[1])]
+    fig, ax = plt.subplot_mosaic([["a", "b"], ["c", "d"]], figsize=(13, 8.6), constrained_layout=True)
+    rows = []
+    a = ax["a"]
+    for label, sel, col in classes:
+        ec, ef = np.array([eta(r, "cpp") for r in both])[sel], np.array([eta(r, "f77") for r in both])[sel]
+        a.scatter(ef, ec, s=16, color=col, edgecolors="none", alpha=0.85,
+                  label="%s: %d points, median |Δη| %.4f" % (label, sel.sum(), np.median(np.abs(de[sel])) if sel.any() else 0))
+    lim = (0.6, 1.9)
+    a.plot(lim, lim, color=AXIS, linewidth=1)
+    a.set_xlim(lim)
+    a.set_ylim(lim)
+    a.set_xlabel("η, HAPRAD 2.0 FORTRAN")
+    a.set_ylabel("η, C++ with the tabulated model")
+    a.legend(loc="upper left", title="C++ table Born vs FORTRAN Born:", title_fontsize=9)
+    style(a, "η at %d grid points both codes evaluate" % len(both))
+    b = ax["b"]
+    b.scatter(np.maximum(born, 1e-4), np.maximum(np.abs(de), 1e-5), s=16, color=CAT[0], edgecolors="none", alpha=0.85)
+    b.set_xscale("log")
+    b.set_yscale("log")
+    b.set_xlabel("|σ_Born C++ / σ_Born FORTRAN − 1|: how well the table reproduces the model")
+    b.xaxis.label.set_fontsize(10)
+    b.set_ylabel("|η C++ − η FORTRAN|")
+    b.axhline(np.median(np.abs(de[born < 0.05])), color=AXIS, linewidth=1)
+    style(b, "The largest differences: where the table misses the model's Born")
+    b.annotate("%d more points: the FORTRAN's model stops\n(|4 <cos φ>| > 0.9), the C++ runs" % len(refused), (0.02, 0.97),
+               xycoords="axes fraction", ha="left", va="top", color=INK2, fontsize=9)
+    rows += [("grid", r["x"], r["Q2"], r["z"], r["pt"], r["phi"], eta(r, "cpp"), eta(r, "f77"), r["tai_ex_cpp"], r["tai_ex_f77"])
+             for r in both]
+    c = ax["c"]
+    tail = np.array([r["tai_ex_cpp"] / r["tai_ex_f77"] for r in both if r["tai_ex_f77"] > 0])
+    order = np.sort(tail)
+    c.plot(np.arange(len(order)), order, color=CAT[0], marker="o", markersize=3, linewidth=1)
+    c.axhline(1., color=AXIS, linewidth=1)
+    c.set_xlabel("grid points, sorted")
+    c.set_ylabel("exclusive tail, C++ / FORTRAN")
+    style(c, "Exclusive tail: %d of %d points more than 1%% low" % (np.sum(tail < 0.99), len(tail)))
+    c.annotate("TRadCor.cxx's adaptive cubature sets no minimum\nnumber of evaluations (the FORTRAN's D01FCE: 10,000)\nand stops early; the weights leave this tail out",
+               (0.98, 0.05), xycoords="axes fraction", ha="right", va="bottom", color=INK2, fontsize=9)
+    d = ax["d"]
+    nodes = [r for r in broad if r["set"] == "node"]
+    data = []
+    if os.path.exists(os.path.join(FARMTSV, "nodes_0.tsv")):
+        for k in (0, 2):
+            axes_k, rc, valid, _ = node_grid(k)
+            idx = [tuple(int(np.argmin(np.abs(axes_k[i] - v)))
+                         for i, v in enumerate((r["Q2"], r["Q2"] / (2 * M * r["x"]), r["z"], r["pt"], r["phi"]))) for r in nodes]
+            data.append([rc[i] if valid[i] else np.nan for i in idx])
+    xs = np.arange(len(nodes))
+    for k, vals, col in zip((0, 2), data, (RAMP3[0], RAMP3[2])):
+        v = np.array(vals)
+        d.scatter(xs, np.where(v > 0, v, np.nan), s=26, marker="s", color=col, label="data table, iteration %d (≤ 0 not shown)" % k)
+    d.scatter(xs, [eta(r, "cpp") for r in nodes], s=30, color=CAT[1], label="model table, C++", zorder=3)
+    d.scatter(xs, [eta(r, "f77") for r in nodes], s=60, facecolors="none", edgecolors=INK, linewidths=1.2,
+              label="model, FORTRAN (missing: model stops)", zorder=4)
+    d.set_yscale("log")
+    d.set_xticks(xs)
+    d.set_xticklabels(["%g\n%g" % (r["Q2"], round(r["Q2"] / (2 * M * r["x"]))) for r in nodes], fontsize=8)
+    d.set_xlabel(r"node: Q$^2$ [GeV$^2$] over $\nu$ [GeV]")
+    d.set_ylabel("η at the node")
+    d.legend(loc="upper right", fontsize=8)
+    style(d, "The full run's extreme nodes, with the model instead")
+    rows += [("node", r["x"], r["Q2"], r["z"], r["pt"], r["phi"], eta(r, "cpp"), eta(r, "f77"), r["tai_ex_cpp"], r["tai_ex_f77"])
+             for r in nodes]
+    g = BROAD_GRID
+    save(fig, "fig19_port_broad", "The C++ against the HAPRAD 2.0 FORTRAN across the RG-E kinematics, same physics on both sides",
+         "Grid: Q2 in %s GeV^2, y in %s, z in %s, p_t in %s GeV, phi in %s deg, W > 2 GeV (%d points). Both codes with HAPRAD 2.0's "
+         "PDF x FF model: the FORTRAN directly, the C++ through the tabulated model (validation/tables, make_model_table). η "
+         "without the exclusive tail. The virtual + soft part differs by about 0.4%% by design (exp(δ_inf) in the C++). "
+         "Nodes: the 17 RC-grid nodes with the most extreme factors in the full LD2+C run. "
+         % (g["Q2"], g["y"], g["z"], g["pt"], g["phi"], len(grid)) + FARM_NOTE,
+         ["set", "x", "Q2", "z", "pt", "phi", "eta_cpp", "eta_f77", "tai_ex_cpp", "tai_ex_f77"], rows)
 
 
 def parse_normalisation(path):
@@ -1145,6 +1293,8 @@ def main():
                 f(scan)
     if do("fig05"):
         fig05(load_port(table, args.recompute, args.jobs))
+    if do("fig19"):
+        fig19(load_broad(table, args.recompute, args.jobs))
     if do("fig06"):
         fig06()
     farm = json.load(open(os.path.join(FIGDATA, "farm_C_D2_20261017.json")))
