@@ -35,8 +35,13 @@ Figures:
   fig11_where_rc_gt2     where in the kinematics events get a factor above 2
   fig12_coverage         table cells fitted / filled / empty, extreme grid nodes
   fig13_data_vs_model    the data-driven eta(phi) against the model's
+  fig14_output_phi       the RC factor against phi_h at 12 kinematic points, every iteration
+  fig15_output_maps      the phi-averaged RC factor over Q2 and nu, every iteration
+  fig16_output_parts     its two parts (virtual + soft, inelastic tail), every iteration
+  fig17_output_table     the weights' effect on the table: yields and modulations
+  fig18_output_cells     single table cells' phi shapes, every iteration
 
-fig07-09 and fig11-13 read the full LD2+C run from figures/farm/tsv/, made by
+fig07-09 and fig11-18 read the full LD2+C run from figures/farm/tsv/, made by
 export_results.sh on the farm and export_farm.C here.
 """
 
@@ -816,6 +821,275 @@ def fig13(scan):
          "does. Both without the exclusive tail. " + FARM_NOTE, ["series", "phi_deg", "eta"], rows)
 
 
+# ==== What the program produces, iteration by iteration ====
+
+ETA_CLIP = 2.0                             # fig14: points above are drawn at the edge, with their value
+
+
+def eta_cmap():
+    """Diverging: blue below 1 (the correction raises the yield), orange above."""
+    from matplotlib.colors import LinearSegmentedColormap
+    cm = LinearSegmentedColormap.from_list("eta_div", ["#0d366b", "#3987e5", "#cde2fb", SURFACE, "#fbd3bd", "#eb6834", "#8a2f0c"])
+    cm.set_bad(EMPTY)
+    return cm
+
+
+def fig14():
+    import numpy as np
+    plt = mpl()
+    grids = [node_grid(k) for k in range(3)]
+    axes_k = grids[0][0]
+    iz, ip = 2, 3                          # z = 0.35, p_t = 0.375 GeV
+    q2s, nus = (1, 3, 5), (1, 3, 5, 7)     # Q2 = 2, 4, 6 GeV^2; nu = 3, 5, 7, 9 GeV
+    fig, axes = plt.subplots(len(q2s), len(nus), figsize=(13, 8.4), constrained_layout=True, sharex=True, sharey=True)
+    rows = []
+    phis = axes_k[4]
+    for r, iq in enumerate(q2s):
+        for c, inu in enumerate(nus):
+            ax = axes[r][c]
+            Q2, nu = axes_k[0][iq], axes_k[1][inu]
+            y = nu / E
+            for k, col in enumerate(RAMP3):
+                rc, valid = grids[k][1][iq, inu, iz, ip], grids[k][2][iq, inu, iz, ip]
+                eta = np.where(valid, rc, np.nan)
+                ax.plot(phis, np.minimum(eta, ETA_CLIP), color=col, marker="o", markersize=3.5,
+                        linewidth=1.6 if k else 2.4, label="iteration %d" % k)
+                rows += [("iter%d" % k, Q2, nu, float(p), e) for p, e in zip(phis, eta)]
+                for p, e in zip(phis, eta):
+                    if e > ETA_CLIP:
+                        ax.annotate("%.1f" % e, (p, ETA_CLIP), xytext=(4, -10 - 9 * k), textcoords="offset points", color=col,
+                                    fontsize=8)
+            if not np.any(grids[0][2][iq, inu, iz, ip]):
+                ax.annotate("no valid node", (0.5, 0.75), xycoords="axes fraction", ha="center", va="center", color=MUTED)
+            ax.axhline(1., color=AXIS, linewidth=1)
+            style(ax)
+            ax.set_title(r"Q$^2$ = %g, y = %.2f, x = %.2f" % (Q2, y, x_of(Q2, y)), color=INK, loc="left", fontsize=10)
+            if r == len(q2s) - 1:
+                ax.set_xlabel(r"$\phi_h$ [deg]")
+            if c == 0:
+                ax.set_ylabel(r"$\eta = \sigma_{\mathrm{obs}} / \sigma_{\mathrm{Born}}$")
+    ax = axes[0][0]
+    ax.set_xlim(-5, 185)
+    ax.set_xticks(range(0, 181, 45))
+    ax.set_ylim(0.6, ETA_CLIP + 0.05)
+    axes[-1][0].legend(*axes[0][0].get_legend_handles_labels(), loc="lower center", fontsize=10)
+    save(fig, "fig14_output_phi", r"The program's output: the RC factor against $\phi_h$, z = %g, $p_t$ = %g GeV, three iterations"
+         % (axes_k[2][iz], axes_k[3][ip]),
+         "Each point is one RC-grid node of the full run: eta = (sigma_F + sigma_in) / sigma_Born from HAPRAD with that iteration's "
+         "data table, without the exclusive tail. Events take 1/eta, interpolated between nodes. Values above %g are drawn at the "
+         "edge and labelled; missing points: no valid node. Iteration 0 uses the raw-yield table, iterations 1 and 2 the table "
+         "refilled with the previous weights. " % ETA_CLIP + FARM_NOTE,
+         ["series", "Q2", "nu", "phi_deg", "eta"], rows)
+
+
+def phi_average(rc, valid):
+    """The phi average (Simpson over the 13 phi nodes) of every (Q2, nu, z, pt)
+    node line whose phi nodes are all valid; nan otherwise."""
+    import numpy as np
+    w = np.array([1, 4, 2, 4, 2, 4, 2, 4, 2, 4, 2, 4, 1], float)
+    full = valid.all(axis=4)
+    return np.where(full, (rc * w).sum(axis=4) / w.sum(), np.nan)
+
+
+def fig15():
+    import numpy as np
+    plt = mpl()
+    from matplotlib.colors import TwoSlopeNorm
+    fig, axes = plt.subplots(1, 4, figsize=(15, 4.6), constrained_layout=True, sharey=True)
+    rows, med = [], []
+    for k in range(3):
+        axes_k, rc, valid, _ = node_grid(k)
+        avg = phi_average(rc, valid)
+        m = np.full(avg.shape[:2], np.nan)
+        for i in range(m.shape[0]):
+            for j in range(m.shape[1]):
+                v = avg[i, j][np.isfinite(avg[i, j])]
+                if len(v):
+                    m[i, j] = np.median(v)
+        med.append(m)
+    q2, nu = axes_k[0], axes_k[1]
+    dq, dn = q2[1] - q2[0], nu[1] - nu[0]
+    xe, ye = np.append(nu - dn / 2, nu[-1] + dn / 2), np.append(q2 - dq / 2, q2[-1] + dq / 2)
+    norm = TwoSlopeNorm(1., 0.7, 1.3)
+    for k in range(3):
+        ax = axes[k]
+        mesh = ax.pcolormesh(xe, ye, np.ma.masked_invalid(med[k]), cmap=eta_cmap(), norm=norm, shading="flat")
+        for i in range(len(q2)):
+            for j in range(len(nu)):
+                if np.isfinite(med[k][i, j]):
+                    v = med[k][i, j]
+                    ax.annotate("%.2f" % v, (nu[j], q2[i]), ha="center", va="center", fontsize=7.5,
+                                color=SURFACE if abs(v - 1.) > 0.18 else INK2)
+                    rows.append(("iter%d" % k, q2[i], nu[j], v))
+        style(ax, "Iteration %d" % k)
+        ax.grid(False)
+        ax.set_xlabel(r"$\nu$ [GeV]   (y = $\nu$/E)")
+    axes[0].set_ylabel(r"Q$^2$ [GeV$^2$]")
+    cb = fig.colorbar(mesh, ax=axes[:3], shrink=0.85, pad=0.01, extend="both")
+    cb.set_label(r"median $\langle\eta\rangle_\phi$", color=INK2)
+    cb.outline.set_visible(False)
+    d = med[2] - med[0]
+    ax = axes[3]
+    from matplotlib.colors import LinearSegmentedColormap
+    dcm = LinearSegmentedColormap.from_list("d", ["#1c5cab", "#86b6ef", SURFACE, "#f3a37b", "#c4480f"])
+    dcm.set_bad(EMPTY)
+    mesh = ax.pcolormesh(xe, ye, np.ma.masked_invalid(d), cmap=dcm, vmin=-0.1, vmax=0.1, shading="flat")
+    for i in range(len(q2)):
+        for j in range(len(nu)):
+            if np.isfinite(d[i, j]):
+                ax.annotate("%+.3f" % d[i, j], (nu[j], q2[i]), ha="center", va="center", fontsize=7, color=INK2)
+                rows.append(("change_0_to_2", q2[i], nu[j], d[i, j]))
+    style(ax, "Change, iteration 0 → 2")
+    ax.grid(False)
+    ax.set_xlabel(r"$\nu$ [GeV]   (y = $\nu$/E)")
+    cb = fig.colorbar(mesh, ax=ax, shrink=0.85, pad=0.01, extend="both")
+    cb.set_label(r"$\Delta$ median $\langle\eta\rangle_\phi$", color=INK2)
+    cb.outline.set_visible(False)
+    save(fig, "fig15_output_maps", r"The program's output over the kinematics: the $\phi$-averaged RC factor, three iterations",
+         "Each cell: the median over z and p_t of the RC-grid nodes' phi average (Simpson over the 13 phi nodes; node lines with "
+         "every phi node valid). Below 1 (blue) the correction raises the yield, above 1 (orange) it lowers it. Grey: no complete "
+         "node line. Without the exclusive tail. " + FARM_NOTE, ["series", "Q2", "nu", "value"], rows)
+
+
+def fig16():
+    import numpy as np
+    plt = mpl()
+    nodes = [farm_tsv("nodes_%d.tsv" % k) for k in range(3)]
+    fig, (a0, a1, a2) = plt.subplots(1, 3, figsize=(14, 4.4), constrained_layout=True)
+    rows = []
+    e0 = np.linspace(0.6, 1.1, 101)
+    e1 = np.linspace(-0.5, 2.0, 126)
+    for k, (n, col) in enumerate(zip(nodes, RAMP3)):
+        v = n["valid"] > 0.5
+        h0 = np.histogram(np.clip(n["r_vr"][v], e0[0], e0[-1] - 1e-9), e0)[0] / v.sum()
+        h1 = np.histogram(np.clip(n["r_in"][v], e1[0], e1[-1] - 1e-9), e1)[0] / v.sum()
+        a0.stairs(h0, e0, color=col, linewidth=2.4 - 0.5 * k, label="iteration %d: median %.4f" % (k, np.median(n["r_vr"][v])))
+        a1.stairs(np.maximum(h1, 1e-7), e1, color=col, linewidth=2.4 - 0.5 * k,
+                  label="iteration %d: median %.4f" % (k, np.median(n["r_in"][v])))
+        rows += [("r_vr_iter%d" % k, a, b, c) for a, b, c in zip(e0[:-1], e0[1:], h0)]
+        rows += [("r_in_iter%d" % k, a, b, c) for a, b, c in zip(e1[:-1], e1[1:], h1)]
+    a0.set_xlabel(r"$\sigma_F / \sigma_{\mathrm{Born}} = e^{\delta_{\mathrm{inf}}}(1 + \delta_{VR} + \delta_{\mathrm{vac}})$")
+    a0.set_ylabel("share of valid nodes per bin")
+    a0.legend(loc="upper left")
+    style(a0, "Virtual + soft part: kinematics only")
+    a1.set_yscale("log")
+    a1.set_ylim(1e-6, 1)
+    a1.set_xlabel(r"$\sigma_{\mathrm{in}} / \sigma_{\mathrm{Born}}$  (clipped to [-0.5, 2])")
+    a1.legend(loc="upper right")
+    style(a1, "Inelastic tail: depends on the table")
+    both = (nodes[0]["valid"] > 0.5) & (nodes[2]["valid"] > 0.5)
+    x, y = nodes[0]["r_in"][both], nodes[2]["r_in"][both]
+    lim = (-0.2, 1.0)
+    h, xe, ye = np.histogram2d(np.clip(x, *lim), np.clip(y, *lim), bins=120, range=(lim, lim))
+    from matplotlib.colors import LogNorm
+    cm = heat_cmap()
+    cm.set_bad(SURFACE)
+    mesh = a2.pcolormesh(xe, ye, np.ma.masked_equal(h.T, 0), cmap=cm, norm=LogNorm(1, h.max()), shading="flat")
+    a2.plot(lim, lim, color=AXIS, linewidth=1)
+    a2.set_xlim(lim)
+    a2.set_ylim(lim)
+    a2.set_xlabel(r"$\sigma_{\mathrm{in}} / \sigma_{\mathrm{Born}}$, iteration 0")
+    a2.set_ylabel(r"$\sigma_{\mathrm{in}} / \sigma_{\mathrm{Born}}$, iteration 2")
+    style(a2, "Node by node, iteration 0 → 2")
+    a2.grid(False)
+    cb = fig.colorbar(mesh, ax=a2, pad=0.01)
+    cb.set_label("nodes", color=INK2)
+    cb.outline.set_visible(False)
+    save(fig, "fig16_output_parts", "The two parts of the RC factor, iteration by iteration",
+         "Every valid RC-grid node of the full run: eta = sigma_F/sigma_Born + sigma_in/sigma_Born (exclusive tail not applied). "
+         "sigma_F/sigma_Born depends only on the kinematics, so it barely changes; the inelastic tail integrates the table over "
+         "the photon's phase space, so it follows the table. Values outside the axes are counted in the edge bins. " + FARM_NOTE,
+         ["series", "bin_low", "bin_high", "fraction"], rows)
+
+
+def cell_shapes(c):
+    """A table's (A, Ac/A, Acc/A) per cell, from the stored reduced amplitudes."""
+    a = c["A"]
+    with __import__("numpy").errstate(divide="ignore", invalid="ignore"):
+        return a, c["Ac_red"] * c["pt2"] ** 0.5 / a, c["Acc_red"] * c["pt2"] / a
+
+
+def fig17():
+    import numpy as np
+    plt = mpl()
+    cs = [farm_tsv("cells_%d.tsv" % k) for k in range(3)]
+    fit = np.all([c["state"] == 0 for c in cs], axis=0)
+    sh = [[v[fit] for v in cell_shapes(c)] for c in cs]
+    fig, (a0, a1, a2) = plt.subplots(1, 3, figsize=(14, 4.4), constrained_layout=True)
+    rows = []
+    e = np.linspace(0.4, 1.4, 101)
+    for k, col in ((1, RAMP3[1]), (2, RAMP3[2])):
+        r = sh[k][0] / sh[0][0]
+        h = np.histogram(np.clip(r, e[0], e[-1] - 1e-9), e)[0] / len(r)
+        a0.stairs(h, e, color=col, linewidth=2, label="iteration %d / iteration 0: median %.3f" % (k, np.median(r)))
+        rows += [("A%d_over_A0" % k, a, b, c) for a, b, c in zip(e[:-1], e[1:], h)]
+    a0.axvline(1., color=AXIS, linewidth=1)
+    a0.set_ylim(0, a0.get_ylim()[1] * 1.3)
+    a0.set_xlabel("A, refilled with the weights / A from the raw yield")
+    a0.set_ylabel("share of cells per bin")
+    a0.legend(loc="upper left")
+    style(a0, "Corrected yield per cell")
+    ed = np.linspace(-0.25, 0.25, 101)
+    for ax, j, name in ((a1, 1, r"A$_c$/A"), (a2, 2, r"A$_{cc}$/A")):
+        for (k0, k1), col in (((0, 1), RAMP3[1]), ((1, 2), RAMP3[2])):
+            d = sh[k1][j] - sh[k0][j]
+            h = np.histogram(np.clip(d, ed[0], ed[-1] - 1e-9), ed)[0] / len(d)
+            ax.stairs(np.maximum(h, 1e-6), ed, color=col, linewidth=2,
+                      label="iteration %d → %d: median %+.4f" % (k0, k1, np.median(d)))
+            rows += [("d_%s_%d_%d" % (["", "Ac", "Acc"][j], k0, k1), a, b, c) for a, b, c in zip(ed[:-1], ed[1:], h)]
+        ax.axvline(0., color=AXIS, linewidth=1)
+        ax.set_yscale("log")
+        ax.set_ylim(1e-5, 10.)
+        ax.set_xlabel(r"$\Delta$ %s per cell" % name)
+        ax.legend(loc="upper left")
+        style(ax, r"The cos %s modulation" % (r"$\phi_h$" if j == 1 else r"2$\phi_h$"))
+    save(fig, "fig17_output_table", "What the weights do to the table: yields and modulations, iteration by iteration",
+         "The %d cells fitted in all three iterations. Iteration k >= 1 refills the table from the same events weighted by "
+         "1/eta of iteration k-1, so A_k/A_0 is the cell's mean weight and the changes of Ac/A and Acc/A are the modulations the "
+         "correction removes. Values outside the axes are counted in the edge bins. " % fit.sum() + FARM_NOTE,
+         ["series", "bin_low", "bin_high", "fraction"], rows)
+
+
+def fig18():
+    import numpy as np
+    plt = mpl()
+    cs = [farm_tsv("cells_%d.tsv" % k) for k in range(3)]
+    fit = np.all([c["state"] == 0 for c in cs], axis=0)
+    picks = [(2.0, 3.0), (2.0, 5.0), (2.0, 7.0), (4.0, 5.0), (4.0, 7.0), (4.0, 9.0)]
+    z0, pt20 = 0.35, 0.15
+    fig, axes = plt.subplots(2, 3, figsize=(13, 7.4), constrained_layout=True, sharex=True)
+    phis = np.arange(0, 181, 2)
+    rows = []
+    c0 = cs[0]
+    for ax, (q2, nu) in zip(axes.flat, picks):
+        dist = ((c0["Q2"] - q2) / 0.5) ** 2 + ((c0["nu"] - nu) / 0.5) ** 2 + ((c0["z"] - z0) / 0.05) ** 2 + \
+               ((c0["pt2"] - pt20) / 0.0625) ** 2
+        dist[~fit] = np.inf
+        i = int(np.argmin(dist))
+        a0 = cs[0]["A"][i]
+        for k, col in enumerate(RAMP3):
+            a, rc, rcc = (v[i] for v in cell_shapes(cs[k]))
+            shape = a * (1. + rc * np.cos(np.radians(phis)) + rcc * np.cos(2. * np.radians(phis))) / a0
+            ax.plot(phis, shape, color=col, linewidth=2.4 - 0.5 * k,
+                    label="iteration %d: A$_c$/A = %+.3f, A$_{cc}$/A = %+.3f" % (k, rc, rcc))
+            rows += [("cell%d_iter%d" % (i, k), float(p), s) for p, s in zip(phis, shape)]
+        ax.axhline(0., color=AXIS, linewidth=1)
+        y = c0["nu"][i] / E
+        style(ax)
+        ax.set_title(r"Q$^2$ = %.2f, y = %.2f, z = %.3f, $p_t^2$ = %.3f, %d events" % (c0["Q2"][i], y, c0["z"][i], c0["pt2"][i],
+                     c0["events"][i]), color=INK, loc="left", fontsize=9.5)
+        ax.legend(loc="lower right", fontsize=8)
+    for ax in axes[-1]:
+        ax.set_xlabel(r"$\phi_h$ [deg]")
+        ax.set_xticks(range(0, 181, 45))
+    fig.supylabel(r"A (1 + (A$_c$/A) cos $\phi_h$ + (A$_{cc}$/A) cos 2$\phi_h$) / A$_0$  (A$_0$: iteration 0)", color=INK2,
+                  fontsize=11)
+    save(fig, "fig18_output_cells", r"Single table cells: the fitted $\phi_h$ shape from the raw yield and after each correction",
+         "The table cell nearest each kinematic point among those fitted in every iteration, at its centre; normalised to the "
+         "iteration-0 A. Iteration 0: raw yields (acceptance included); iterations 1, 2: the same events weighted by 1/eta of "
+         "the previous iteration. " + FARM_NOTE, ["series", "phi_deg", "shape"], rows)
+
+
 def fig10(farm):
     plt = mpl()
     t = farm["timing"]
@@ -876,7 +1150,7 @@ def main():
     farm = json.load(open(os.path.join(FIGDATA, "farm_C_D2_20261017.json")))
     if do("fig10"):
         fig10(farm)
-    full = [f for f in (fig07, fig08, fig09, fig11, fig12, fig13) if do(f.__name__)]
+    full = [f for f in (fig07, fig08, fig09, fig11, fig12, fig13, fig14, fig15, fig16, fig17, fig18) if do(f.__name__)]
     if full and not os.path.exists(os.path.join(FARMTSV, "nodes_0.tsv")):
         print("skipping %s: no full-run export in %s (export_results.sh, then export_farm.C)"
               % (", ".join(f.__name__ for f in full), FARMTSV))
