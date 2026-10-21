@@ -13,6 +13,35 @@
 //                   of those with rc > 2, for v = Q2_y, z_pt2, phi_y
 //
 //   root -l -b -q 'export_farm.C("figures/farm/export", "figures/farm/tsv")'
+//
+// export_grid writes one grid's nodes alone, in the nodes_<k>.tsv format, e.g.
+// the grid run_rc_grid.sh builds from the HAPRAD 2.0 model table:
+//
+//   root -l -b -q -e '.L export_farm.C' -e 'export_grid("tables/model_grid.root", "figures/farm/tsv/nodes_model.tsv")'
+
+// Every RC-grid node: centre, valid flag, sigma_Born, r_vr r_in r_ex and the
+// table-lookup fractions.
+void export_grid(const char* gridPath, const char* outPath) {
+  TFile g(gridPath);
+  const char* names[8] = {"valid", "sigma_born", "r_vr", "r_in", "r_ex", "table_outside", "table_empty", "table_second"};
+  THnD* h[8];
+  for (int i = 0; i < 8; ++i) h[i] = g.Get<THnD>(names[i]);
+  FILE* out = fopen(outPath, "w");
+  fprintf(out, "Q2\tnu\tz\tpt\tphi\tvalid\tsigma_born\tr_vr\tr_in\tr_ex\toutside\tempty\tsecond\n");
+  Int_t idx[5];
+  for (Long64_t b = 0; b < h[0]->GetNbins(); ++b) {
+    h[0]->GetBinContent(b, idx);
+    bool inside = true;
+    for (int d = 0; d < 5; ++d) inside = inside && idx[d] >= 1 && idx[d] <= h[0]->GetAxis(d)->GetNbins();
+    if (!inside) continue;
+    double c[5];
+    for (int d = 0; d < 5; ++d) c[d] = h[0]->GetAxis(d)->GetBinCenter(idx[d]);
+    fprintf(out, "%g\t%g\t%g\t%g\t%g\t%d", c[0], c[1], c[2], c[3], c[4], h[0]->GetBinContent(b) > 0.5);
+    for (int i = 1; i < 8; ++i) fprintf(out, "\t%.6g", h[i]->GetBinContent(b));
+    fprintf(out, "\n");
+  }
+  fclose(out);
+}
 
 void export_farm(const char* inDir, const char* outDir) {
   gSystem->mkdir(outDir, true);
@@ -21,27 +50,7 @@ void export_farm(const char* inDir, const char* outDir) {
     if (gSystem->AccessPathName(gp)) break;
 
     // ==== Grid nodes ====
-    {
-      TFile g(gp);
-      const char* names[8] = {"valid", "sigma_born", "r_vr", "r_in", "r_ex", "table_outside", "table_empty", "table_second"};
-      THnD* h[8];
-      for (int i = 0; i < 8; ++i) h[i] = g.Get<THnD>(names[i]);
-      FILE* out = fopen(Form("%s/nodes_%d.tsv", outDir, k), "w");
-      fprintf(out, "Q2\tnu\tz\tpt\tphi\tvalid\tsigma_born\tr_vr\tr_in\tr_ex\toutside\tempty\tsecond\n");
-      Int_t idx[5];
-      for (Long64_t b = 0; b < h[0]->GetNbins(); ++b) {
-        h[0]->GetBinContent(b, idx);
-        bool inside = true;
-        for (int d = 0; d < 5; ++d) inside = inside && idx[d] >= 1 && idx[d] <= h[0]->GetAxis(d)->GetNbins();
-        if (!inside) continue;
-        double c[5];
-        for (int d = 0; d < 5; ++d) c[d] = h[0]->GetAxis(d)->GetBinCenter(idx[d]);
-        fprintf(out, "%g\t%g\t%g\t%g\t%g\t%d", c[0], c[1], c[2], c[3], c[4], h[0]->GetBinContent(b) > 0.5);
-        for (int i = 1; i < 8; ++i) fprintf(out, "\t%.6g", h[i]->GetBinContent(b));
-        fprintf(out, "\n");
-      }
-      fclose(out);
-    }
+    export_grid(gp, Form("%s/nodes_%d.tsv", outDir, k));
 
     // ==== Table cells, with the second-neighbour fill state ====
     {

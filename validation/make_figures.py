@@ -43,9 +43,17 @@ Figures:
   fig17_output_table     the weights' effect on the table: yields and modulations
   fig18_output_cells     single table cells' phi shapes, every iteration
   fig19_port_broad       C++ against FORTRAN at 504 RG-E points and the full run's extreme nodes
+  fig20_rc_phi           pages: eta against phi, one page per (Q2, nu) node, panels z x p_t
+  fig21_xsec_phi         pages: sigma_obs and sigma_Born against phi, same layout
+  fig22_rc_pt2           pages: phi-integrated eta against p_t^2, one page per Q2
+  fig23_rc_z             pages: phi-integrated eta against z, one page per Q2
 
 fig07-09 and fig11-18 read the full LD2+C run from figures/farm/tsv/, made by
-export_results.sh on the farm and export_farm.C here.
+export_results.sh on the farm and export_farm.C here. fig20-23 overlay the
+grid of the HAPRAD 2.0 model table, figures/farm/tsv/nodes_model.tsv: built by
+Utilities/run_rc_grid.sh with tables/model_table_E10.5473.root, exported with
+export_farm.C's export_grid. Their pages go to figures/<name>.pdf (all pages)
+and figures/<name>/*.png.
 """
 
 import argparse
@@ -1239,6 +1247,252 @@ def fig18():
          "the previous iteration. " + FARM_NOTE, ["series", "phi_deg", "shape"], rows)
 
 
+# ==== Page sets in the style of V. Klimenko's HAPRAD pi0 study ====
+# (CLAS collaboration meeting, May 2025): one page per bin, a grid of small
+# panels, every table's curve overlaid. They read the grid nodes directly.
+
+PAGE_TABLES = [("model", "HAPRAD 2.0 model table", CAT[1]), (0, "data table, iteration 0", RAMP3[0]),
+               (2, "data table, iteration 2", RAMP3[2])]
+SIMPSON13 = [1, 4, 2, 4, 2, 4, 2, 4, 2, 4, 2, 4, 1]
+
+
+def node_arrays(k):
+    """Grid k (an iteration, or "model") as (axes, eta, sigma_born): 5-D arrays
+    over (Q2, nu, z, pt, phi) nodes, nan where the node has no result."""
+    import numpy as np
+    n = farm_tsv("nodes_%s.tsv" % k)
+    keys = ["Q2", "nu", "z", "pt", "phi"]
+    axes = [np.unique(n[c]) for c in keys]
+    idx = tuple(np.searchsorted(a, n[c]) for a, c in zip(axes, keys))
+    shape = tuple(len(a) for a in axes)
+    eta, sib = np.full(shape, np.nan), np.full(shape, np.nan)
+    ok = n["valid"] > 0.5
+    eta[tuple(i[ok] for i in idx)] = (n["r_vr"] + n["r_in"])[ok]
+    sib[tuple(i[ok] for i in idx)] = n["sigma_born"][ok]
+    return axes, eta, sib
+
+
+def phi_integrated(eta, sib):
+    """The phi-integrated RC factor, int sigma_obs / int sigma_Born (Simpson over
+    the 13 phi nodes); nan unless every phi node has a result. The same as the
+    ratio of the A terms of A (1 + B cos phi + C cos 2 phi) fits to both."""
+    import numpy as np
+    w = np.array(SIMPSON13, float)
+    return np.sum(eta * sib * w, axis=-1) / np.sum(sib * w, axis=-1)
+
+
+def page_axes(plt, nrow, ncol):
+    plt.rcParams["figure.max_open_warning"] = 0
+    fig, axes = plt.subplots(nrow, ncol, figsize=(1.55 * ncol + 1.2, 1.1 * nrow + 1.4), squeeze=False, sharex=True)
+    for ax in axes.flat:
+        ax.tick_params(labelsize=6, length=2, pad=1)
+        style(ax)
+        ax.grid(True, color=GRID, linewidth=0.5)
+    return fig, axes
+
+
+def clip_plot(ax, x, v, lo, hi, color, lw, ls="-"):
+    """v against x within [lo, hi]; points beyond are drawn on the edge as
+    triangles."""
+    import numpy as np
+    c = np.clip(v, lo, hi)
+    ax.plot(x, c, color=color, linewidth=lw, linestyle=ls, marker="o", markersize=1.6)
+    for edge, m in ((hi, "^"), (lo, "v")):
+        out = np.isfinite(v) & ((v > hi) if m == "^" else (v < lo))
+        ax.plot(np.asarray(x)[out], c[out], linestyle="none", marker=m, markersize=3.5, color=color)
+
+
+def page_limits(curves, model):
+    """y range of a panel: what the model spans, widened to the data up to
+    0.6 beyond the model on either side."""
+    import numpy as np
+    m = model[np.isfinite(model)]
+    allv = np.concatenate([c[np.isfinite(c)] for c in curves]) if curves else m
+    if not len(allv):
+        return 0.5, 1.5
+    base_lo, base_hi = (m.min(), m.max()) if len(m) else (np.median(allv), np.median(allv))
+    lo, hi = max(allv.min(), base_lo - 0.6), min(allv.max(), base_hi + 0.6)
+    pad = max(0.02, 0.08 * (hi - lo))
+    return lo - pad, hi + pad
+
+
+def write_pages(name, pages, note, header, rows):
+    """A multi-page PDF, one PNG per page in figures/<name>/, and the TSV."""
+    from matplotlib.backends.backend_pdf import PdfPages
+    import matplotlib.pyplot as plt
+    os.makedirs(os.path.join(FIG, name), exist_ok=True)
+    with PdfPages(os.path.join(FIG, name + ".pdf")) as pdf:
+        for tag, fig in pages:
+            fig.text(0.01, 0.005, "\n".join(textwrap.wrap(note, int(fig.get_figwidth() * 17))), color=MUTED, fontsize=7,
+                     ha="left", va="bottom")
+            pdf.savefig(fig)
+            fig.savefig(os.path.join(FIG, name, tag + ".png"), dpi=110)
+            plt.close(fig)
+    with open(os.path.join(FIG, name + ".tsv"), "w") as out:
+        out.write("\t".join(header) + "\n")
+        for r in rows:
+            out.write("\t".join("%.6g" % v if isinstance(v, float) else str(v) for v in r) + "\n")
+    print("wrote %s (%d pages)" % (name, len(pages)))
+
+
+def page_legend(fig, entries):
+    from matplotlib.lines import Line2D
+    fig.legend([Line2D([], [], color=c, linestyle=ls, linewidth=1.6) for _, c, ls in entries], [l for l, _, _ in entries],
+               loc="upper right", ncol=len(entries), fontsize=8, frameon=False, bbox_to_anchor=(0.99, 0.995))
+
+
+def blank_panel(ax):
+    """A panel with no node: keep its row/column label, drop ticks, grid and frame."""
+    ax.grid(False)
+    ax.tick_params(left=False, labelleft=False, bottom=False, labelbottom=False)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    ax.blank = True
+
+
+def page_layout(fig, xlabel, ylabel):
+    h = fig.get_figheight()
+    for ax in fig.axes:
+        if getattr(ax, "blank", False):
+            for line in list(ax.lines):
+                line.remove()
+    fig.supylabel(ylabel, fontsize=9, color=INK2)
+    fig.supxlabel(xlabel, fontsize=9, color=INK2, y=0.62 / h)
+    fig.subplots_adjust(left=0.07, right=0.99, top=1 - 0.75 / h, bottom=1.25 / h, wspace=0.32, hspace=0.18)
+
+
+PAGES_NOTE = ("RC-grid nodes of the full LD2+C run (50 inbending runs, dc_fmt pass 1, workflow rc_inb_C_D2_dc_fmt_20261017_1402) "
+              "and of the same grid computed with the HAPRAD 2.0 model table (run_rc_grid.sh); eta without the exclusive tail. "
+              "Triangles: beyond the panel's range, drawn at its edge. Empty panel: no node with a result.")
+
+
+def fig20_21(which):
+    """fig20_rc_phi: eta against phi; fig21_xsec_phi: sigma_obs and sigma_Born
+    against phi, each divided by the phi-averaged sigma_Born of its table. One
+    page per (Q2, nu), panels z (columns) x p_t (rows)."""
+    import numpy as np
+    plt = mpl()
+    grids = {k: node_arrays(k) for k, _, _ in PAGE_TABLES}
+    axes_k = grids["model"][0]
+    q2s, nus, zs, pts, phis = axes_k
+    tables = PAGE_TABLES if which == "rc" else [PAGE_TABLES[0], PAGE_TABLES[2]]
+    pages, rows = [], []
+    w = np.array(SIMPSON13, float) / sum(SIMPSON13)
+    for iq, q2 in enumerate(q2s):
+        for inu, nu in enumerate(nus):
+            have = np.zeros((len(zs), len(pts)), bool)
+            for k, _, _ in tables:
+                have |= np.isfinite(grids[k][1][iq, inu]).any(axis=-1)
+            if not have.any():
+                continue
+            zi, pi_ = np.where(have.any(axis=1))[0], np.where(have.any(axis=0))[0][::-1]
+            fig, axes = page_axes(plt, len(pi_), len(zi))
+            for r, ip in enumerate(pi_):
+                for c, iz in enumerate(zi):
+                    ax = axes[r][c]
+                    curves = []
+                    for k, label, col in tables:
+                        eta, sib = grids[k][1][iq, inu, iz, ip], grids[k][2][iq, inu, iz, ip]
+                        if which == "rc":
+                            curves.append((k, col, eta, "-"))
+                            rows += [(k, q2, nu, zs[iz], pts[ip], p, e) for p, e in zip(phis, eta)]
+                        else:
+                            norm = np.sum(sib * w) if np.all(np.isfinite(sib)) else np.nan
+                            curves.append((k, col, eta * sib / norm, "-"))
+                            curves.append((k, col, sib / norm, "--"))
+                            rows += [(k, q2, nu, zs[iz], pts[ip], p, e * s / norm, s / norm) for p, e, s in zip(phis, eta, sib)]
+                    model = [v for k, _, v, ls in curves if k == "model"]
+                    lo, hi = page_limits([v for _, _, v, _ in curves], np.concatenate(model) if model else np.array([]))
+                    for k, col, v, ls in curves:
+                        if np.isfinite(v).any():
+                            clip_plot(ax, phis, v, lo, hi, col, 1.4 if k == "model" else 1.1, ls)
+                    if not any(np.isfinite(v).any() for _, _, v, _ in curves):
+                        blank_panel(ax)
+                    ax.set_ylim(lo, hi)
+                    ax.set_xlim(0, 180)
+                    ax.set_xticks([0, 90, 180])
+                    if which == "rc":
+                        ax.axhline(1., color=AXIS, linewidth=0.6)
+                    if c == 0:
+                        ax.set_ylabel("%g" % pts[ip], fontsize=8, color=INK2)
+                    if r == len(pi_) - 1:
+                        ax.set_xlabel("%g" % zs[iz], fontsize=8, color=INK2)
+            y = nu / E
+            what = (r"RC factor $\eta$ against $\phi_h$" if which == "rc" else
+                    r"$\sigma_{\mathrm{obs}}$ (solid) and $\sigma_{\mathrm{Born}}$ (dashed) against $\phi_h$, "
+                    r"each / its $\phi$-averaged $\sigma_{\mathrm{Born}}$")
+            fig.suptitle(r"%s:  Q$^2$ = %g GeV$^2$, $\nu$ = %g GeV  (y = %.2f, x = %.2f)" % (what, q2, nu, y, x_of(q2, y)),
+                         x=0.01, ha="left", fontsize=10, color=INK)
+            page_legend(fig, [(l, col, "-") for _, l, col in tables])
+            page_layout(fig, r"z  (columns);  each panel: $\phi_h$ = 0-180 deg", r"$p_t$ [GeV]  (rows)")
+            pages.append(("Q2_%g_nu_%g" % (q2, nu), fig))
+    if which == "rc":
+        write_pages("fig20_rc_phi", pages, PAGES_NOTE, ["table", "Q2", "nu", "z", "pt", "phi", "eta"], rows)
+    else:
+        write_pages("fig21_xsec_phi", pages, PAGES_NOTE + " Each table's cross sections divided by its own phi-averaged "
+                    "sigma_Born: the data table is not absolutely normalised, so only the shapes compare.",
+                    ["table", "Q2", "nu", "z", "pt", "phi", "sigma_obs_rel", "sigma_born_rel"], rows)
+
+
+def fig22_23(which):
+    """The phi-integrated RC factor, one page per Q2: against p_t^2 with rows z
+    (fig22_rc_pt2), or against z with rows p_t (fig23_rc_z); columns nu."""
+    import numpy as np
+    plt = mpl()
+    grids = {k: node_arrays(k) for k, _, _ in PAGE_TABLES}
+    q2s, nus, zs, pts, _ = grids["model"][0]
+    integ = {k: phi_integrated(g[1], g[2]) for k, g in grids.items()}
+    pages, rows = [], []
+    for iq, q2 in enumerate(q2s):
+        have = np.zeros((len(nus), len(zs), len(pts)), bool)
+        for k in integ:
+            have |= np.isfinite(integ[k][iq])
+        if not have.any():
+            continue
+        ni = np.where(have.any(axis=(1, 2)))[0]
+        if which == "pt2":
+            ri, xs, rlab, xlab = np.where(have.any(axis=(0, 2)))[0][::-1], pts ** 2, zs, r"$p_t^2$ [GeV$^2$]"
+        else:
+            ri, xs, rlab, xlab = np.where(have.any(axis=(0, 1)))[0][::-1], zs, pts, "z"
+        fig, axes = page_axes(plt, len(ri), len(ni))
+        allv = np.concatenate([integ[k][iq][np.isfinite(integ[k][iq])] for k in integ])
+        lo, hi = np.percentile(allv, [2, 98])
+        lo, hi = max(lo, 0.5), min(hi, 2.0)
+        pad = max(0.02, 0.1 * (hi - lo))
+        lo, hi = lo - pad, hi + pad
+        for r, i_r in enumerate(ri):
+            for c, inu in enumerate(ni):
+                ax = axes[r][c]
+                drawn = False
+                for k, label, col in PAGE_TABLES:
+                    v = integ[k][iq, inu, i_r, :] if which == "pt2" else integ[k][iq, inu, :, i_r]
+                    if np.isfinite(v).any():
+                        clip_plot(ax, xs, v, lo, hi, col, 1.4 if k == "model" else 1.1)
+                        drawn = True
+                    rows += [(k, q2, nus[inu], rlab[i_r] if which == "pt2" else xx, xx if which == "pt2" else rlab[i_r], vv)
+                             for xx, vv in zip(xs, v)]
+                ax.axhline(1., color=AXIS, linewidth=0.6)
+                ax.set_ylim(lo, hi)
+                if not drawn:
+                    blank_panel(ax)
+                if c == 0:
+                    ax.set_ylabel("%g" % rlab[i_r], fontsize=8, color=INK2)
+                if r == len(ri) - 1:
+                    ax.set_xlabel(r"$\nu$ = %g (y = %.2f)" % (nus[inu], nus[inu] / E), fontsize=7.5, color=INK2)
+        fig.suptitle(r"$\phi$-integrated RC factor against %s:  Q$^2$ = %g GeV$^2$" % (xlab, q2), x=0.01, ha="left", fontsize=10,
+                     color=INK)
+        page_legend(fig, [(l, col, "-") for _, l, col in PAGE_TABLES])
+        page_layout(fig, "%s in each panel;  columns: ν [GeV]" % xlab, ("z" if which == "pt2" else r"$p_t$ [GeV]") + "  (rows)")
+        pages.append(("Q2_%g" % q2, fig))
+    note = (PAGES_NOTE + " Integrated: int sigma_obs dphi / int sigma_Born dphi over the 13 phi nodes (Simpson), the ratio of the "
+            "A terms of A (1 + B cos phi + C cos 2 phi) fits to both; needs every phi node. One y range per page, from the 2nd to the "
+            "98th percentile of its values.")
+    if which == "pt2":
+        write_pages("fig22_rc_pt2", pages, note, ["table", "Q2", "nu", "z", "pt2", "eta_integrated"], rows)
+    else:
+        write_pages("fig23_rc_z", pages, note, ["table", "Q2", "nu", "z", "pt", "eta_integrated"], rows)
+
+
 def fig10(farm):
     plt = mpl()
     t = farm["timing"]
@@ -1308,6 +1562,14 @@ def main():
         full = []
     for f in full:
         f(load_scan(table, False, args.jobs)) if f is fig13 else f()
+    page_sets = [("fig20", fig20_21, "rc"), ("fig21", fig20_21, "xsec"), ("fig22", fig22_23, "pt2"), ("fig23", fig22_23, "z")]
+    page_sets = [p for p in page_sets if do(p[0])]
+    if page_sets and not os.path.exists(os.path.join(FARMTSV, "nodes_model.tsv")):
+        print("skipping %s: no %s (run_rc_grid.sh with the model table, then export_farm.C's export_grid)"
+              % (", ".join(p[0] for p in page_sets), os.path.join(FARMTSV, "nodes_model.tsv")))
+        page_sets = []
+    for _, f, which in page_sets:
+        f(which)
 
 
 if __name__ == "__main__":
