@@ -1288,7 +1288,11 @@ def phi_integrated(eta, sib):
 
 def page_axes(plt, nrow, ncol):
     plt.rcParams["figure.max_open_warning"] = 0
-    fig, axes = plt.subplots(nrow, ncol, figsize=(1.55 * ncol + 1.2, 1.1 * nrow + 1.4), squeeze=False, sharex=True)
+    # Panels keep one size; small grids get a minimum page, so the title,
+    # legend and axis labels have room.
+    fig, axes = plt.subplots(nrow, ncol, figsize=(max(1.55 * ncol + 1.6, 10.5), max(1.1 * nrow + 1.6, 4.8)), squeeze=False,
+                             sharex=True)
+    fig.grid_shape = (nrow, ncol)
     for ax in axes.flat:
         ax.tick_params(labelsize=6, length=2, pad=1)
         style(ax)
@@ -1328,8 +1332,8 @@ def write_pages(name, pages, header, rows):
     os.makedirs(os.path.join(FIG, name), exist_ok=True)
     with PdfPages(os.path.join(FIG, name + ".pdf")) as pdf:
         for tag, fig in pages:
-            pdf.savefig(fig)
-            fig.savefig(os.path.join(FIG, name, tag + ".png"), dpi=110)
+            pdf.savefig(fig, bbox_inches="tight", pad_inches=0.15)
+            fig.savefig(os.path.join(FIG, name, tag + ".png"), dpi=110, bbox_inches="tight", pad_inches=0.15)
             plt.close(fig)
     with open(os.path.join(FIG, name + ".tsv"), "w") as out:
         out.write("\t".join(header) + "\n")
@@ -1354,14 +1358,18 @@ def blank_panel(ax):
 
 
 def page_layout(fig, xlabel, ylabel):
-    h = fig.get_figheight()
+    w, h = fig.get_figwidth(), fig.get_figheight()
+    nrow, ncol = fig.grid_shape
+    left, top = 1.05 / w, 1 - 0.8 / h
+    right = min(0.99, left + 1.55 * ncol / w)
+    bottom = max(0.75 / h, top - 1.1 * nrow / h)
     for ax in fig.axes:
         if getattr(ax, "blank", False):
             for line in list(ax.lines):
                 line.remove()
-    fig.supylabel(ylabel, fontsize=9, color=INK2)
-    fig.supxlabel(xlabel, fontsize=9, color=INK2, y=0.12 / h)
-    fig.subplots_adjust(left=0.07, right=0.99, top=1 - 0.75 / h, bottom=0.75 / h, wspace=0.32, hspace=0.18)
+    fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom, wspace=0.32, hspace=0.18)
+    fig.text(0.12 / w, (top + bottom) / 2, ylabel, rotation=90, ha="left", va="center", fontsize=9, color=INK2)
+    fig.text((left + right) / 2, bottom - 0.55 / h, xlabel, ha="center", va="top", fontsize=9, color=INK2)
 
 
 
