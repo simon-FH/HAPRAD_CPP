@@ -1249,10 +1249,15 @@ def fig18():
 
 # ==== Page sets in the style of V. Klimenko's HAPRAD pi0 study ====
 # (CLAS collaboration meeting, May 2025): one page per bin, a grid of small
-# panels, every table's curve overlaid. They read the grid nodes directly.
+# panels, the curves of the HAPRAD 2.0 model table's grid and of the full LD2+C
+# run's final grid (iteration 2) overlaid, read at the grid nodes; eta without
+# the exclusive tail. Triangles: beyond the panel's range, drawn at its edge.
+# fig21 divides each table's cross sections by its own phi-averaged sigma_Born,
+# since the data table is not absolutely normalised. fig22/23 integrate over
+# the 13 phi nodes (Simpson), and use one y range per page, from the 2nd to the
+# 98th percentile of its values.
 
-PAGE_TABLES = [("model", "HAPRAD 2.0 model table", CAT[1]), (0, "data table, iteration 0", RAMP3[0]),
-               (2, "data table, iteration 2", RAMP3[2])]
+PAGE_TABLES = [("model", "HAPRAD 2.0 model table", CAT[1]), (2, "data table, iteration 2", RAMP3[2])]
 SIMPSON13 = [1, 4, 2, 4, 2, 4, 2, 4, 2, 4, 2, 4, 1]
 
 
@@ -1316,15 +1321,13 @@ def page_limits(curves, model):
     return lo - pad, hi + pad
 
 
-def write_pages(name, pages, note, header, rows):
+def write_pages(name, pages, header, rows):
     """A multi-page PDF, one PNG per page in figures/<name>/, and the TSV."""
     from matplotlib.backends.backend_pdf import PdfPages
     import matplotlib.pyplot as plt
     os.makedirs(os.path.join(FIG, name), exist_ok=True)
     with PdfPages(os.path.join(FIG, name + ".pdf")) as pdf:
         for tag, fig in pages:
-            fig.text(0.01, 0.005, "\n".join(textwrap.wrap(note, int(fig.get_figwidth() * 17))), color=MUTED, fontsize=7,
-                     ha="left", va="bottom")
             pdf.savefig(fig)
             fig.savefig(os.path.join(FIG, name, tag + ".png"), dpi=110)
             plt.close(fig)
@@ -1357,13 +1360,10 @@ def page_layout(fig, xlabel, ylabel):
             for line in list(ax.lines):
                 line.remove()
     fig.supylabel(ylabel, fontsize=9, color=INK2)
-    fig.supxlabel(xlabel, fontsize=9, color=INK2, y=0.62 / h)
-    fig.subplots_adjust(left=0.07, right=0.99, top=1 - 0.75 / h, bottom=1.25 / h, wspace=0.32, hspace=0.18)
+    fig.supxlabel(xlabel, fontsize=9, color=INK2, y=0.12 / h)
+    fig.subplots_adjust(left=0.07, right=0.99, top=1 - 0.75 / h, bottom=0.75 / h, wspace=0.32, hspace=0.18)
 
 
-PAGES_NOTE = ("RC-grid nodes of the full LD2+C run (50 inbending runs, dc_fmt pass 1, workflow rc_inb_C_D2_dc_fmt_20261017_1402) "
-              "and of the same grid computed with the HAPRAD 2.0 model table (run_rc_grid.sh); eta without the exclusive tail. "
-              "Triangles: beyond the panel's range, drawn at its edge. Empty panel: no node with a result.")
 
 
 def fig20_21(which):
@@ -1375,7 +1375,7 @@ def fig20_21(which):
     grids = {k: node_arrays(k) for k, _, _ in PAGE_TABLES}
     axes_k = grids["model"][0]
     q2s, nus, zs, pts, phis = axes_k
-    tables = PAGE_TABLES if which == "rc" else [PAGE_TABLES[0], PAGE_TABLES[2]]
+    tables = PAGE_TABLES
     pages, rows = [], []
     w = np.array(SIMPSON13, float) / sum(SIMPSON13)
     for iq, q2 in enumerate(q2s):
@@ -1427,11 +1427,9 @@ def fig20_21(which):
             page_layout(fig, r"z  (columns);  each panel: $\phi_h$ = 0-180 deg", r"$p_t$ [GeV]  (rows)")
             pages.append(("Q2_%g_nu_%g" % (q2, nu), fig))
     if which == "rc":
-        write_pages("fig20_rc_phi", pages, PAGES_NOTE, ["table", "Q2", "nu", "z", "pt", "phi", "eta"], rows)
+        write_pages("fig20_rc_phi", pages, ["table", "Q2", "nu", "z", "pt", "phi", "eta"], rows)
     else:
-        write_pages("fig21_xsec_phi", pages, PAGES_NOTE + " Each table's cross sections divided by its own phi-averaged "
-                    "sigma_Born: the data table is not absolutely normalised, so only the shapes compare.",
-                    ["table", "Q2", "nu", "z", "pt", "phi", "sigma_obs_rel", "sigma_born_rel"], rows)
+        write_pages("fig21_xsec_phi", pages, ["table", "Q2", "nu", "z", "pt", "phi", "sigma_obs_rel", "sigma_born_rel"], rows)
 
 
 def fig22_23(which):
@@ -1484,13 +1482,10 @@ def fig22_23(which):
         page_legend(fig, [(l, col, "-") for _, l, col in PAGE_TABLES])
         page_layout(fig, "%s in each panel;  columns: ν [GeV]" % xlab, ("z" if which == "pt2" else r"$p_t$ [GeV]") + "  (rows)")
         pages.append(("Q2_%g" % q2, fig))
-    note = (PAGES_NOTE + " Integrated: int sigma_obs dphi / int sigma_Born dphi over the 13 phi nodes (Simpson), the ratio of the "
-            "A terms of A (1 + B cos phi + C cos 2 phi) fits to both; needs every phi node. One y range per page, from the 2nd to the "
-            "98th percentile of its values.")
     if which == "pt2":
-        write_pages("fig22_rc_pt2", pages, note, ["table", "Q2", "nu", "z", "pt2", "eta_integrated"], rows)
+        write_pages("fig22_rc_pt2", pages, ["table", "Q2", "nu", "z", "pt2", "eta_integrated"], rows)
     else:
-        write_pages("fig23_rc_z", pages, note, ["table", "Q2", "nu", "z", "pt", "eta_integrated"], rows)
+        write_pages("fig23_rc_z", pages, ["table", "Q2", "nu", "z", "pt", "eta_integrated"], rows)
 
 
 def fig10(farm):
