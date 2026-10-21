@@ -47,7 +47,7 @@ Figures:
   fig21_xsec_phi         pages: sigma_obs and sigma_Born against phi, same layout
   fig22_rc_pt2           pages: phi-integrated eta against p_t^2, one page per Q2
   fig23_rc_z             pages: phi-integrated eta against z, one page per Q2
-  fig24_convergence_tail the iteration: the bulk of the grid converges, a tail runs away
+  fig24_convergence_tail distribution of convergence: the bulk of the grid converges, a tail runs away
 
 fig07-09 and fig11-18 read the full LD2+C run from figures/farm/tsv/, made by
 export_results.sh on the farm and export_farm.C here. fig20-23 overlay the
@@ -1499,7 +1499,8 @@ def fig22_23(which):
 
 def fig24():
     """The bulk of the RC grid converges, its tail does not: the change of eta
-    between iterations by quantile, node by node, and along single nodes."""
+    = r_vr + r_in between iterations at the nodes valid in all three
+    iterations of the full run, by quantile and node by node."""
     import numpy as np
     from matplotlib.colors import LogNorm
     plt = mpl()
@@ -1507,9 +1508,7 @@ def fig24():
     both = g[0][2] & g[1][2] & g[2][2]
     eta = [g[k][1][both] for k in range(3)]
     d1, d2 = np.abs(eta[1] - eta[0]), np.abs(eta[2] - eta[1])
-    _, toy = parse_iteration(os.path.join(FIGDATA, "closure_iteration.txt"))
-    fig, (a0, a1, a2) = plt.subplots(1, 3, figsize=(15, 4.9), constrained_layout=True,
-                                     gridspec_kw={"width_ratios": [1, 1.1, 1]})
+    fig, (a0, a1) = plt.subplots(1, 2, figsize=(11.5, 4.9), constrained_layout=True, gridspec_kw={"width_ratios": [1, 1.1]})
     rows = []
 
     # ---- (a) the change between iterations, by quantile of the nodes ----
@@ -1521,19 +1520,13 @@ def fig24():
         a0.annotate("%s  %.2g → %.2g" % (label, v[0], v[1]), (1, v[1]), xytext=(8, 0), textcoords="offset points",
                     va="center", color=INK2, fontsize=9)
         rows.append(("quantile_%s" % label, v[0], v[1]))
-    toy = [c for c in toy if c[0] <= 1]
-    tx = [c[0] for c in toy]
-    for idx, label in ((1, "toy median"), (2, "toy 95%")):
-        a0.plot(tx, [c[idx] for c in toy], color=MUTED, linestyle="--", linewidth=1.3, marker="o", markersize=3)
-        a0.annotate(label, (0, toy[0][idx]), xytext=(-8, 0), textcoords="offset points", ha="right", va="center", color=MUTED,
-                    fontsize=8.5)
     a0.axhline(0.002, color=AXIS, linewidth=1)
     a0.annotate("stopping tolerance 0.002", (2.05, 0.002), xytext=(0, -4), textcoords="offset points", ha="right", va="top",
                 color=MUTED, fontsize=8.5)
     a0.set_yscale("log")
     a0.set_xticks([0, 1])
     a0.set_xticklabels(["0 → 1", "1 → 2"])
-    a0.set_xlim(-0.75, 2.1)
+    a0.set_xlim(-0.25, 2.1)
     a0.set_xlabel("iterations compared")
     a0.set_ylabel(r"|$\Delta\eta$| of the node at that quantile")
     style(a0, "Low quantiles shrink, high ones don't")
@@ -1553,7 +1546,7 @@ def fig24():
     shrink, grow = np.mean(r < 0.3), np.mean(r >= 1)
     from matplotlib.lines import Line2D
     a1.legend([Line2D([], [], color=CAT[1], linewidth=1.5), Line2D([], [], color=AXIS, linewidth=1.2, linestyle="--")],
-              ["same change again: not converging", "10× smaller each step: the toy's rate"], loc="lower right", fontsize=8.5,
+              ["same change again: not converging", "10× smaller each step"], loc="lower right", fontsize=8.5,
               frameon=True, facecolor=SURFACE, edgecolor="none", framealpha=0.95)
     a1.annotate("%.1f%% of nodes: change shrinks > 3×\n%.1f%% of nodes: change grows" % (100 * shrink, 100 * grow),
                 (0.03, 0.97), xycoords="axes fraction", ha="left", va="top", color=INK2, fontsize=9,
@@ -1570,30 +1563,7 @@ def fig24():
     cb.set_label("nodes", color=INK2)
     cb.outline.set_visible(False)
 
-    # ---- (c) single nodes across the three iterations ----
-    rng = np.random.default_rng(1)
-    typical = rng.choice(np.where(r < 0.3)[0], 60, replace=False)
-    worst = np.argsort(-(d2 * (r >= 1)))[:25]
-    for i in typical:
-        a2.plot([0, 1, 2], [eta[k][i] for k in range(3)], color=CAT[0], alpha=0.45, linewidth=1)
-    for i in worst:
-        a2.plot([0, 1, 2], [max(eta[k][i], 1e-2) for k in range(3)], color=CAT[1], alpha=0.8, linewidth=1.2)
-    rows += [("typical_node", *[eta[k][i] for k in range(3)]) for i in typical]
-    rows += [("growing_node", *[eta[k][i] for k in range(3)]) for i in worst]
-    a2.set_yscale("log")
-    a2.set_xticks([0, 1, 2])
-    a2.set_xticklabels(["iteration 0", "1", "2"])
-    a2.set_xlim(-0.1, 2.1)
-    a2.set_ylabel(r"$\eta$ at the node")
-    a2.axhline(1., color=AXIS, linewidth=1)
-    a2.legend([Line2D([], [], color=CAT[0]), Line2D([], [], color=CAT[1])],
-              ["60 random nodes whose change shrinks", "the 25 nodes that grow most"], loc="upper left")
-    style(a2, "Single nodes: flat lines and runaways")
-    save(fig, "fig24_convergence_tail", "The RC iteration: the bulk of the grid converges, a tail of a few percent runs away",
-         "Change of eta = r_vr + r_in between iterations at the %d RC-grid nodes valid in all three iterations of the full run. "
-         "Toy: closure_iteration.py, where the loop provably converges to the truth. Left: the node at each quantile of |change|. "
-         "Middle: each node's second change against its first. Right: eta along single nodes. " % len(d1) + FARM_NOTE,
-         ["series", "a", "b", "c"], rows)
+    save(fig, "fig24_convergence_tail", "Distribution of convergence", "", ["series", "a", "b"], rows)
 
 
 def fig10(farm):
