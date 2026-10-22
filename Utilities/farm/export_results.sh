@@ -13,7 +13,8 @@
 #   setsid nohup ./export_results.sh <workflow dir> < /dev/null >&! export.log &
 #
 # Writes <workflow dir>/export/ (event_histograms.root, grid_<k>.root,
-# table_<k>.root, the workflow's settings and run list) and the tarball,
+# table_<k>.root, convergence.txt from convergence_report.C, the workflow's
+# settings and run list) and the tarball,
 # by default <workflow dir>/export.tgz. Needs ROOT on PATH. The histograms
 # read every selected event of every run, so this takes a while (tens of
 # minutes for a full target).
@@ -44,6 +45,10 @@ echo "event histograms: started $(date '+%F %T')"
 # suspends the script when it runs in the background ("tty output").
 root -l -b -q "$HERE/event_histograms.C(\"$W\", \"$E/event_histograms.root\")" < /dev/null | grep -v "^  \|^Processing"
 echo "event histograms: done $(date '+%F %T')"
+
+# ---- Convergence report over grids, tables and events ----
+root -l -b -q "$HERE/convergence_report.C(\"$E\")" < /dev/null | grep -v "^Processing" > "$E/convergence.txt"
+tail -n 2 "$E/convergence.txt"
 
 # ---- One file to copy ----
 tar -C "$W" -czf "$OUT" export

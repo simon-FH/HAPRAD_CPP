@@ -16,6 +16,11 @@
 //                        selected events with a factor, and those with rc > 2,
 //                        in the 2-D variables v = Q2_y, z_pt2, phi_y
 //                        (phi in degrees, folded onto 0..180)
+//   h_dw_<k>             for k >= 1: log10 |w_k / w_(k-1) - 1|, the relative
+//                        change of the weight w = 1/rc since the previous
+//                        iteration, for selected events with a positive factor
+//                        in both (no change at all lands in the underflow)
+//   n_dw_<k>             bin 1: events with a factor in only one of the two
 
 // The last `KEY=value` (quotes stripped) of a bash settings file.
 TString SettingOf(const char* path, const char* key) {
@@ -65,11 +70,14 @@ void event_histograms(const char* workflowDir, const char* outPath) {
 
   // ==== Histograms ====
   TFile out(outPath, "RECREATE");
-  std::vector<TH1D*> hLog, hLe0;
+  std::vector<TH1D*> hLog, hLe0, hDw, nDw;
   std::vector<std::array<TH2D*, 3>> hAll, hGt2;
   for (int k = 0; k < nIter; ++k) {
     hLog.push_back(new TH1D(Form("h_logrc_%d", k), "log10(rc);log10(rc);events", 1600, -2., 4.));
     hLe0.push_back(new TH1D(Form("n_le0_%d", k), "events with rc <= 0", 1, 0., 1.));
+    hDw.push_back(k ? new TH1D(Form("h_dw_%d", k), "relative weight change;log10 |w_k/w_{k-1} - 1|;events", 1100, -8., 3.)
+                    : nullptr);
+    nDw.push_back(k ? new TH1D(Form("n_dw_%d", k), "events with a factor in only one of iterations k-1, k", 1, 0., 1.) : nullptr);
     std::array<TH2D*, 3> a, g;
     for (int s = 0; s < 2; ++s) {
       auto& h = s == 0 ? a : g;
@@ -124,6 +132,7 @@ void event_histograms(const char* workflowDir, const char* outPath) {
         bk.push_back(dt->GetBranch(names[i]));
       }
       std::vector<Float_t> rc(nIter);
+      std::vector<char> ok(nIter);
       std::vector<Int_t> st(nIter);
       Bool_t sel = false;
       TBranch* bSel = rcT[0]->GetBranch("selected");
@@ -144,8 +153,10 @@ void event_histograms(const char* workflowDir, const char* outPath) {
         const double phiDeg = std::fabs(std::remainder(double(phi), 2. * TMath::Pi())) * 180. / TMath::Pi();
         for (int k = 0; k < nIter; ++k) {
           bSt[k]->GetEntry(i);
+          ok[k] = false;
           if (st[k] > 1) continue;  // no factor
           bRc[k]->GetEntry(i);
+          ok[k] = rc[k] > 0.f;
           if (rc[k] <= 0.f) {
             hLe0[k]->Fill(0.5);
             continue;
@@ -155,6 +166,15 @@ void event_histograms(const char* workflowDir, const char* outPath) {
           for (int s = 0; s < 3; ++s) {
             hAll[k][s]->Fill(v[s][0], v[s][1]);
             if (rc[k] > 2.f) hGt2[k][s]->Fill(v[s][0], v[s][1]);
+          }
+        }
+        // ---- Change of the weight since the previous iteration ----
+        for (int k = 1; k < nIter; ++k) {
+          if (ok[k] != ok[k - 1]) {
+            nDw[k]->Fill(0.5);
+          } else if (ok[k]) {
+            const double d = std::fabs(double(rc[k - 1]) / rc[k] - 1.);  // w_k / w_(k-1) - 1
+            hDw[k]->Fill(d > 0. ? std::log10(d) : -99.);
           }
         }
       }
