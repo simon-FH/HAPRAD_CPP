@@ -16,7 +16,11 @@ hadron leptoproduction
 ``fhaprad.f``                the program for parameter initialization
 ``fhaprad_test.f``           the program for test parameter initialization
 ``ihaprad.f``                the basic program of calculation
-``exclusive_model.f``        the program for exclusive cross sections calculation 
+``exclusive_model.f``        the program for exclusive cross sections calculation
+``pi_n_maid.dat``            gamma* p -> pi+ n cross sections read by
+                             exclusive_model.f: MAID2007 (made with
+                             ../Utilities/make_maid_grid.py)
+``pi_n_maid2003.dat``        the MAID2003 grid HAPRAD 2.0 was distributed with 
 ``semi_inclusive_model.f``   the program for semi-inclusive structure functions
                              calculation
 ``h3.f``                     the program for semi-inclusive H3 structure

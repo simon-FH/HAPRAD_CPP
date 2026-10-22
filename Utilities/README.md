@@ -60,6 +60,12 @@ dt->Draw("Q2", "RC.w * (RC.selected && RC.rc_status <= 1)");
   the scripts run in `HAPRAD_DATA_DIR` (default `../haprad2`). Without the file
   the library now stops with an error -- it used to return an exclusive tail of
   exactly zero.
+* `haprad2/pi_n_maid.dat` holds MAID2007 (gamma* p -> pi+ n, Q2 0-5 GeV^2, W
+  1.08-2.00 GeV, theta 0-180 deg); `make_maid_grid.py` rebuilds it from the
+  MAID2007 web calculator. The MAID2003 grid HAPRAD 2.0 shipped with is kept as
+  `haprad2/pi_n_maid2003.dat`; to use it, link it as `pi_n_maid.dat` in the
+  working directory. Beyond the grid (Q2 > 5, W > 2) both codes extrapolate
+  with the power laws HAPRAD 2.0 fitted at the MAID2003 boundaries.
 * The grid stores the parts of the RC factor separately (Born x virtual/soft,
   inelastic tail, exclusive tail). `ApplyRC` leaves the exclusive tail out
   unless `rc_exclusive_tail = yes`, which it refuses for a table in arbitrary

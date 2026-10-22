@@ -134,8 +134,9 @@ of the full LD2+C run gave its most extreme factors. The results are cached in
 minutes on 14 cores. The model table is the one `make_model_table` builds with
 `B="18:0.5:10,16:1:10.5,20:0:1,24:0:1.5"` at E = 10.5473 (section above).
 
-The exclusive tail agrees with the FORTRAN to 8e-5 at all 412 points both codes
-evaluate. That needs the FORTRAN's minimum of 10,000 evaluations per sub-region
+The exclusive tail (MAID2007, `haprad2/pi_n_maid.dat`) agrees with the FORTRAN
+to better than 1e-4 at 411 of the 412 points both codes evaluate, and to 4e-4 at
+the last. That needs the FORTRAN's minimum of 10,000 evaluations per sub-region
 (`SetMinPts` in `TRadCor::ExclusiveRadiativeTail`, D01FCE's `minpts`): without
 it the adaptive cubature can stop on an error estimate that misses a collinear
 peak, and 35 of these points come out more than 0.1% low, one by 51%. A higher
